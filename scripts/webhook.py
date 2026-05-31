@@ -250,6 +250,10 @@ def handle_help(reply_token: str, text: str):
 
 # ─── Webhook 入口 ─────────────────────────────
 
+@app.route("/")
+def health():
+    return "OK", 200
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     signature = request.headers.get("X-Line-Signature", "")
