@@ -133,6 +133,11 @@ WEEKLY_CAPS: dict[str, float] = {
     "掃地": 2.0,
 }
 
+# 家事別名對照（輸入 → 正式名稱）
+CHORE_ALIASES: dict[str, str] = {
+    "倒水地下室": "地下室倒水",
+}
+
 def get_member_weekly_chore_points(member: str, chore_name: str) -> float:
     """查詢本週某成員在某項家事累積的點數"""
     rows = _read("點數記錄", "A2:D500")
@@ -150,6 +155,7 @@ def get_member_weekly_chore_points(member: str, chore_name: str) -> float:
 
 def complete_chore(chore_name: str, member: str) -> dict | None:
     """家事可重複做，直接查名稱記點，不改狀態欄位"""
+    chore_name = CHORE_ALIASES.get(chore_name, chore_name)
     chores = get_chores()  # 不限狀態，只要名稱符合就算
     matched = next(
         (c for c in chores if chore_name in c["name"] or c["name"] in chore_name),
