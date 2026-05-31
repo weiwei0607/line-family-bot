@@ -83,6 +83,26 @@ def get_members() -> list[str]:
     rows = _read("設定", "A2:A20")
     return [r[0].strip() for r in rows if r and r[0].strip()]
 
+def register_member(user_id: str, name: str):
+    """把 LINE user_id 和名字寫進設定 tab，並更新快取"""
+    rows = _read("設定", "A2:B30")
+    svc = _get_service()
+    sid = _get_sheet_id()
+    # 找到同名或同 user_id 的行覆蓋，否則新增
+    for i, r in enumerate(rows):
+        row_name = r[0].strip() if r else ""
+        row_uid = r[1].strip() if len(r) > 1 else ""
+        if row_name == name or row_uid == user_id:
+            svc.spreadsheets().values().update(
+                spreadsheetId=sid,
+                range=f"設定!A{i+2}:B{i+2}",
+                valueInputOption="USER_ENTERED",
+                body={"values": [[name, user_id]]},
+            ).execute()
+            return
+    # 沒找到，新增一行
+    _append("設定", [name, user_id])
+
 
 # ──────────────────────────────────────────────
 # 家事清單 Tab: [任務名稱, 點數, 分類, 狀態, 完成者, 完成時間]
@@ -129,7 +149,8 @@ def get_member_weekly_chore_points(member: str, chore_name: str) -> float:
     return total
 
 def complete_chore(chore_name: str, member: str) -> dict | None:
-    chores = get_chores(only_pending=True)
+    """家事可重複做，直接查名稱記點，不改狀態欄位"""
+    chores = get_chores()  # 不限狀態，只要名稱符合就算
     matched = next(
         (c for c in chores if chore_name in c["name"] or c["name"] in chore_name),
         None,
@@ -144,18 +165,8 @@ def complete_chore(chore_name: str, member: str) -> dict | None:
         if already >= cap:
             matched["capped"] = True
             matched["cap"] = cap
-            matched["already"] = already
             return matched
 
-    row = matched["row"]
-    svc = _get_service()
-    sid = _get_sheet_id()
-    svc.spreadsheets().values().update(
-        spreadsheetId=sid,
-        range=f"家事清單!D{row}:F{row}",
-        valueInputOption="USER_ENTERED",
-        body={"values": [["已完成", member, _now_str()]]},
-    ).execute()
     _append("點數記錄", [_today_str(), member, matched["name"], matched["points"], _now_str()])
     matched["capped"] = False
     return matched

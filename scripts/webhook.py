@@ -17,8 +17,8 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
 from sheets import (
     bg, get_members, get_chores, complete_chore, add_chore,
-    get_weekly_points, format_weekly_summary, get_shopping_list,
-    add_shopping, complete_shopping, add_expense, get_expenses,
+    get_weekly_points, format_weekly_summary, register_member,
+    get_shopping_list, add_shopping, complete_shopping, add_expense, get_expenses,
 )
 
 app = Flask(__name__)
@@ -215,12 +215,25 @@ def handle_ai_mention(reply_token: str, text: str):
 
 
 def handle_admin(reply_token: str, event: MessageEvent, text: str):
-    """管理指令（取群組 ID 等）"""
+    """管理指令（取群組 ID、自報名等）"""
     if text in ["群組id", "群組ID", "groupid", "群id"]:
         source = event.source
         gid = getattr(source, "group_id", None) or getattr(source, "room_id", None) or "不是群組訊息"
         reply(reply_token, f"群組 ID：{gid}")
         return True
+
+    # 自報名：「我是媽媽」「叫我姊姊」「我叫爸爸」
+    m = re.match(r"^(?:我是|叫我|我叫)\s*(.+)", text)
+    if m:
+        name = m.group(1).strip()
+        user_id = getattr(event.source, "user_id", "")
+        if user_id and name:
+            bg(register_member, user_id, name)
+            _member_cache[user_id] = name  # 立即更新快取
+            reply(reply_token, f"好的！以後叫你「{name}」😊\n"
+                               f"完成家事時傳「完成 家事名稱」就會記在你名下囉")
+        return True
+
     return False
 
 
