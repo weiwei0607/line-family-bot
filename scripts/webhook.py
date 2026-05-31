@@ -24,7 +24,7 @@ from api_helpers import (
     get_astronomy_fact, get_calories_burned,
     get_jisho, get_kanji_info, get_random_jlpt_word,
     get_spanish_dict, get_meal_random, get_open_trivia, get_number_fact,
-    get_nasa_apod, translate_text, text_to_speech, save_tts_audio, get_tts_audio,
+    get_nasa_apod, translate_text, smart_translate, text_to_speech, save_tts_audio, get_tts_audio,
     get_joke_round_robin, get_horoscope_round_robin, get_news_round_robin,
     shazam_recognize, get_starmatch,
     JLPT_N5_KANJI, QUOTA_MSG, TMDB_KEY, RAPIDAPI_KEY,
