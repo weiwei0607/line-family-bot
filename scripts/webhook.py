@@ -17,7 +17,7 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from api_helpers import (
     format_weather_block, get_advice, get_horoscope, get_fun_fact,
     search_recipes_by_ingredients, get_nutrition, get_movie_by_genre,
-    RAPIDAPI_KEY, CALORIENINJAS_KEY,
+    RAPIDAPI_KEY,
 )
 
 from sheets import (
@@ -445,8 +445,8 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
     # 熱量查詢（需要 RAPIDAPI_KEY）
     m = re.match(r"^熱量\s+(.+)$", text)
     if m:
-        if not CALORIENINJAS_KEY:
-            reply(reply_token, "熱量查詢需要設定 CALORIENINJAS_KEY（calorieninjas.com 免費申請）")
+        if not RAPIDAPI_KEY:
+            reply(reply_token, "熱量查詢需要設定 RAPIDAPI_KEY")
             return True
         food = m.group(1).strip()
         items = get_nutrition(food)
@@ -677,8 +677,7 @@ def handle_help(reply_token: str, text: str):
 • 推薦電影 [類型] — AI 推薦電影
 • 冷知識 — 隨機有趣知識
 • 給我建議 — 隨機人生建議
-① 需 RAPIDAPI_KEY（Spoonacular）
-② 需 CALORIENINJAS_KEY（免費申請）
+① ② 需在 Render 設定 RAPIDAPI_KEY
 
 【其他】
 • 我是 [名字] — 登記身分
