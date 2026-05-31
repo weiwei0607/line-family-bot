@@ -12,6 +12,13 @@ LAT = float(os.environ.get("LOCATION_LAT", "25.04"))
 LON = float(os.environ.get("LOCATION_LON", "121.53"))
 WEATHER_CITY = os.environ.get("WEATHER_CITY", "Taipei")
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "")
+APININJAS_KEY = os.environ.get("APININJAS_KEY", "")
+NASA_KEY = os.environ.get("NASA_API_KEY", "")
+
+QUOTA_MSG = "❌ 今日 API 額度用完了，明天再試試！"
+
+def _check_quota(r) -> bool:
+    return r.status_code == 429
 
 WMO = {
     0: "☀️ 晴天", 1: "🌤 大致晴", 2: "⛅️ 部分多雲", 3: "☁️ 陰天",
@@ -38,6 +45,10 @@ CURRENCY_MAP = {
 
 def _rapidapi_headers(host: str) -> dict:
     return {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": host}
+
+
+def _apininjas_headers() -> dict:
+    return {"X-Api-Key": APININJAS_KEY}
 
 
 # ── 天氣（Open-Meteo，無需 key）──────────────────
@@ -184,22 +195,26 @@ def get_horoscope(sign_zh: str) -> dict | None:
         return None
 
 
-# ── 笑話（JokeAPI v2）────────────────────────────
+# ── 笑話（API-Ninjas / JokeAPI v2）──────────────
 
 def get_joke() -> str:
-    if not RAPIDAPI_KEY:
-        return ""
     try:
-        r = requests.get(
-            "https://jokeapi-v2.p.rapidapi.com/joke/Any",
-            headers=_rapidapi_headers("jokeapi-v2.p.rapidapi.com"),
-            params={"safe-mode": "", "format": "json"},
-            timeout=10,
-        )
-        d = r.json()
-        if d.get("type") == "single":
-            return d.get("joke", "")
-        return f"{d.get('setup', '')}\n\n{d.get('delivery', '')}"
+        if APININJAS_KEY:
+            r = requests.get("https://api.api-ninjas.com/v1/jokes",
+                             headers=_apininjas_headers(), timeout=10)
+            if _check_quota(r): return QUOTA_MSG
+            items = r.json()
+            return items[0].get("joke", "") if items else ""
+        if RAPIDAPI_KEY:
+            r = requests.get("https://jokeapi-v2.p.rapidapi.com/joke/Any",
+                             headers=_rapidapi_headers("jokeapi-v2.p.rapidapi.com"),
+                             params={"safe-mode": "", "format": "json"}, timeout=10)
+            if _check_quota(r): return QUOTA_MSG
+            d = r.json()
+            if d.get("type") == "single":
+                return d.get("joke", "")
+            return f"{d.get('setup', '')}\n\n{d.get('delivery', '')}"
+        return ""
     except Exception:
         return ""
 
@@ -207,18 +222,18 @@ def get_joke() -> str:
 # ── 問答題（Trivia by API-Ninjas）───────────────
 
 def get_trivia() -> dict | None:
-    if not RAPIDAPI_KEY:
-        return None
     try:
-        r = requests.get(
-            "https://trivia-by-api-ninjas.p.rapidapi.com/v1/trivia",
-            headers=_rapidapi_headers("trivia-by-api-ninjas.p.rapidapi.com"),
-            timeout=10,
-        )
+        if APININJAS_KEY:
+            r = requests.get("https://api.api-ninjas.com/v1/trivia",
+                             headers=_apininjas_headers(), timeout=10)
+        elif RAPIDAPI_KEY:
+            r = requests.get("https://trivia-by-api-ninjas.p.rapidapi.com/v1/trivia",
+                             headers=_rapidapi_headers("trivia-by-api-ninjas.p.rapidapi.com"), timeout=10)
+        else:
+            return None
+        if _check_quota(r): return {"_quota": True}
         items = r.json()
-        if items:
-            return {"question": items[0].get("question", ""), "answer": items[0].get("answer", "")}
-        return None
+        return {"question": items[0].get("question", ""), "answer": items[0].get("answer", "")} if items else None
     except Exception:
         return None
 
@@ -226,15 +241,18 @@ def get_trivia() -> dict | None:
 # ── 飲料食譜（Cocktail by API-Ninjas）───────────
 
 def get_cocktail(name: str = "") -> dict | None:
-    if not RAPIDAPI_KEY:
-        return None
+    params = {"name": name if name else random.choice(["lemonade", "tea", "smoothie", "juice"])}
     try:
-        r = requests.get(
-            "https://cocktail-by-api-ninjas.p.rapidapi.com/v1/cocktail",
-            headers=_rapidapi_headers("cocktail-by-api-ninjas.p.rapidapi.com"),
-            params={"name": name if name else random.choice(["lemonade", "tea", "smoothie", "juice"])},
-            timeout=10,
-        )
+        if APININJAS_KEY:
+            r = requests.get("https://api.api-ninjas.com/v1/cocktail",
+                             headers=_apininjas_headers(), params=params, timeout=10)
+        elif RAPIDAPI_KEY:
+            r = requests.get("https://cocktail-by-api-ninjas.p.rapidapi.com/v1/cocktail",
+                             headers=_rapidapi_headers("cocktail-by-api-ninjas.p.rapidapi.com"),
+                             params=params, timeout=10)
+        else:
+            return None
+        if _check_quota(r): return {"_quota": True}
         items = r.json()
         return items[0] if items else None
     except Exception:
@@ -252,6 +270,7 @@ def get_random_activity() -> dict | None:
             headers=_rapidapi_headers("random-activity-generator.p.rapidapi.com"),
             timeout=10,
         )
+        if _check_quota(r): return {"_quota": True}
         return r.json()
     except Exception:
         return None
@@ -270,6 +289,7 @@ def get_exercise() -> dict | None:
             params={"limit": "1", "offset": str(offset)},
             timeout=10,
         )
+        if _check_quota(r): return {"_quota": True}
         items = r.json()
         return items[0] if items else None
     except Exception:
@@ -287,6 +307,7 @@ def get_anime_quote() -> dict | None:
             headers=_rapidapi_headers("anime-quotes-7.p.rapidapi.com"),
             timeout=10,
         )
+        if _check_quota(r): return {"_quota": True}
         return r.json()
     except Exception:
         return None
@@ -307,6 +328,7 @@ def generate_image(prompt: str) -> str | None:
             json={"prompt": prompt, "width": 512, "height": 512},
             timeout=30,
         )
+        if _check_quota(r): return QUOTA_MSG
         d = r.json()
         return (d.get("url") or d.get("imageUrl") or d.get("image_url")
                 or d.get("output") or (d.get("images") or [None])[0])
@@ -328,11 +350,9 @@ def get_currency(from_curr: str, to_curr: str = "TWD") -> dict | None:
             params={"from": from_curr, "to": to_curr, "amount": "1"},
             timeout=10,
         )
+        if _check_quota(r): return {"_quota": True}
         d = r.json()
-        return {
-            "from": from_curr, "to": to_curr,
-            "rate": round(d.get("result", 0), 4),
-        }
+        return {"from": from_curr, "to": to_curr, "rate": round(d.get("result", 0), 4)}
     except Exception:
         return None
 
@@ -348,6 +368,7 @@ def get_gold_price() -> dict | None:
             headers=_rapidapi_headers("gold-price-live.p.rapidapi.com"),
             timeout=10,
         )
+        if _check_quota(r): return {"_quota": True}
         d = r.json()
         metals = d.get("metals", d)
         gold = metals.get("XAU") or metals.get("gold") or metals.get("GOLD")
@@ -368,6 +389,7 @@ def get_movie(title: str = "") -> dict | None:
             headers=_rapidapi_headers("imdb-top-100-movies.p.rapidapi.com"),
             timeout=10,
         )
+        if _check_quota(r): return {"_quota": True}
         movies = r.json()
         if not movies:
             return None
@@ -391,6 +413,7 @@ def get_streaming(title: str) -> list:
             params={"title": title, "country": "tw", "show_type": "movie"},
             timeout=10,
         )
+        if _check_quota(r): return [{"_quota": True}]
         results = r.json()
         if isinstance(results, list) and results:
             opts = results[0].get("streamingOptions", {}).get("tw", [])
@@ -417,18 +440,20 @@ def calc_bmi(height_cm: float, weight_kg: float) -> dict:
     return {"bmi": bmi, "category": cat}
 
 
-# ── 食物熱量（CalorieNinjas via RapidAPI）────────
+# ── 食物熱量（CalorieNinjas / API-Ninjas）────────
 
 def get_nutrition(query: str) -> list[dict]:
-    if not RAPIDAPI_KEY:
-        return []
     try:
-        r = requests.get(
-            "https://calorieninjas.p.rapidapi.com/v1/nutrition",
-            headers=_rapidapi_headers("calorieninjas.p.rapidapi.com"),
-            params={"query": query},
-            timeout=10,
-        )
+        if APININJAS_KEY:
+            r = requests.get("https://api.api-ninjas.com/v1/nutrition",
+                             headers=_apininjas_headers(), params={"query": query}, timeout=10)
+        elif RAPIDAPI_KEY:
+            r = requests.get("https://calorieninjas.p.rapidapi.com/v1/nutrition",
+                             headers=_rapidapi_headers("calorieninjas.p.rapidapi.com"),
+                             params={"query": query}, timeout=10)
+        else:
+            return []
+        if _check_quota(r): return [{"_quota": True}]
         return r.json().get("items", [])
     except Exception:
         return []
@@ -461,10 +486,17 @@ def get_chuck_norris() -> str:
         return ""
 
 
-# ── 激勵名言（免費無需 key）──────────────────────
+# ── 激勵名言（API-Ninjas 優先，fallback type.fit）
 
 def get_motivation_quote() -> dict | None:
     try:
+        if APININJAS_KEY:
+            r = requests.get("https://api.api-ninjas.com/v1/quotes",
+                             headers=_apininjas_headers(), timeout=8)
+            if _check_quota(r): return {"_quota": True}
+            items = r.json()
+            if items:
+                return {"text": items[0].get("quote", ""), "author": items[0].get("author", "Unknown")}
         r = requests.get("https://type.fit/api/quotes", timeout=8)
         quotes = r.json()
         if quotes:
@@ -486,6 +518,7 @@ def get_movie_quote() -> dict | None:
             headers=_rapidapi_headers("movie-quote-api.p.rapidapi.com"),
             timeout=10,
         )
+        if _check_quota(r): return {"_quota": True}
         d = r.json()
         return {"quote": d.get("quote", ""), "movie": d.get("movie", ""), "character": d.get("character", "")}
     except Exception:
@@ -495,15 +528,17 @@ def get_movie_quote() -> dict | None:
 # ── 天文冷知識（Facts by API-Ninjas）────────────
 
 def get_astronomy_fact() -> str:
-    if not RAPIDAPI_KEY:
-        return ""
     try:
-        r = requests.get(
-            "https://facts-by-api-ninjas.p.rapidapi.com/v1/facts",
-            headers=_rapidapi_headers("facts-by-api-ninjas.p.rapidapi.com"),
-            params={"category": "science"},
-            timeout=10,
-        )
+        if APININJAS_KEY:
+            r = requests.get("https://api.api-ninjas.com/v1/facts",
+                             headers=_apininjas_headers(), params={"category": "science"}, timeout=10)
+        elif RAPIDAPI_KEY:
+            r = requests.get("https://facts-by-api-ninjas.p.rapidapi.com/v1/facts",
+                             headers=_rapidapi_headers("facts-by-api-ninjas.p.rapidapi.com"),
+                             params={"category": "science"}, timeout=10)
+        else:
+            return ""
+        if _check_quota(r): return QUOTA_MSG
         items = r.json()
         return items[0].get("fact", "") if items else ""
     except Exception:
@@ -513,15 +548,18 @@ def get_astronomy_fact() -> str:
 # ── 消耗熱量（Calories Burned by API-Ninjas）─────
 
 def get_calories_burned(activity: str, weight_kg: float = 60, duration_min: int = 30) -> list[dict]:
-    if not RAPIDAPI_KEY:
-        return []
+    params = {"activity": activity, "weight": str(weight_kg), "duration": str(duration_min)}
     try:
-        r = requests.get(
-            "https://calories-burned-by-api-ninjas.p.rapidapi.com/v1/caloriesburned",
-            headers=_rapidapi_headers("calories-burned-by-api-ninjas.p.rapidapi.com"),
-            params={"activity": activity, "weight": str(weight_kg), "duration": str(duration_min)},
-            timeout=10,
-        )
+        if APININJAS_KEY:
+            r = requests.get("https://api.api-ninjas.com/v1/caloriesburned",
+                             headers=_apininjas_headers(), params=params, timeout=10)
+        elif RAPIDAPI_KEY:
+            r = requests.get("https://calories-burned-by-api-ninjas.p.rapidapi.com/v1/caloriesburned",
+                             headers=_rapidapi_headers("calories-burned-by-api-ninjas.p.rapidapi.com"),
+                             params=params, timeout=10)
+        else:
+            return []
+        if _check_quota(r): return [{"_quota": True}]
         return r.json()
     except Exception:
         return []
@@ -720,6 +758,50 @@ def translate_text(text: str, target_lang: str = "zh-TW", source_lang: str = "au
         return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
         return f"翻譯失敗：{e}"
+
+
+# ── 翻譯（MyMemory，免費無需 key）────────────────
+
+def translate_text(text: str, target: str = "zh-TW") -> str:
+    if not text:
+        return text
+    lang_map = {"zh-TW": "zh-TW", "zh": "zh-TW", "ja": "ja-JP", "es": "es-ES", "en": "en-US"}
+    tgt = lang_map.get(target, target)
+    try:
+        r = requests.get(
+            "https://api.mymemory.translated.net/get",
+            params={"q": text[:300], "langpair": f"en|{tgt}"},
+            timeout=8,
+        )
+        result = r.json().get("responseData", {}).get("translatedText", "")
+        return result if result and result != "NO QUERY SPECIFIED" else text
+    except Exception:
+        return text
+
+
+# ── NASA APOD（每日天文圖片）──────────────────────
+
+def get_nasa_apod() -> dict | None:
+    if not NASA_KEY:
+        return None
+    try:
+        r = requests.get(
+            "https://api.nasa.gov/planetary/apod",
+            params={"api_key": NASA_KEY},
+            timeout=12,
+        )
+        if _check_quota(r): return {"_quota": True}
+        d = r.json()
+        return {
+            "title": d.get("title", ""),
+            "date": d.get("date", ""),
+            "explanation": (d.get("explanation") or "")[:500],
+            "url": d.get("url", ""),
+            "hdurl": d.get("hdurl") or d.get("url", ""),
+            "media_type": d.get("media_type", "image"),
+        }
+    except Exception:
+        return None
 
 
 # ── 電影（IMDB，fallback）────────────────────────
