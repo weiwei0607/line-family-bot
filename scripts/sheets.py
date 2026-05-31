@@ -228,7 +228,7 @@ def format_weekly_summary() -> str:
     # 合併：固定成員 + 本週有記點但不在清單裡的人
     all_names = list(members)
     for name in pts:
-        if name not in all_names:
+        if name not in all_names and name != "不知道誰":
             all_names.append(name)
     lines = ["📊 本週點數統計："]
     for m in all_names:

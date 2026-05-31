@@ -239,40 +239,73 @@ def handle_admin(reply_token: str, event: MessageEvent, text: str):
 
 
 def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
-    """批量登錄格式：多行，每行 家事名稱+數字"""
+    """批量登錄格式：第一行「完成」或「5/25 完成」，後續每行一個家事（可附點數或不附）"""
     lines = [l.strip() for l in text.strip().splitlines()]
     if len(lines) < 2:
         return False
 
-    chore_pattern = re.compile(r'^(.+?)(\d+\.?\d*)$')
-    chores: list[tuple[str, float]] = []
+    # 第一行必須是「完成」標頭才觸發批量模式
+    first = lines[0]
+    if first not in ["完成", "完成了"] and not re.match(r'^\d+[/／]\d+\s*完成', first):
+        return False
 
-    for line in lines:
-        # 跳過日期行、「完成」、空行
-        if not line or line in ["完成", "完成了", "今日", "記帳"]:
-            continue
-        if re.match(r'^\d+[/／]\d+', line):
+    chore_lines = lines[1:]
+
+    # 檢查最後一行是否為成員名稱（純文字、不含數字）
+    members_list = get_members()
+    who = member or ""
+    last = chore_lines[-1] if chore_lines else ""
+    if last and not re.search(r'\d', last) and last not in ["說明", "幫助", "家事清單", "查點數", "購物清單"]:
+        matched = next((m for m in members_list if m in last or last in m), None)
+        if matched:
+            who = matched
+            chore_lines = chore_lines[:-1]
+        else:
+            who = last
+            chore_lines = chore_lines[:-1]
+
+    # 解析每行：「家事名稱1」或「家事名稱+冰箱1」或純名稱「午餐」
+    chore_pattern = re.compile(r'^(.+?)(\d+\.?\d*)$')
+    chores_sheet: list[dict] | None = None
+
+    chores: list[tuple[str, float]] = []
+    for line in chore_lines:
+        if not line:
             continue
         m = chore_pattern.match(line)
         if m:
-            name = m.group(1).strip().rstrip('＋+').strip() or m.group(1).strip()
-            # 保留完整名稱（包含＋）
-            name = m.group(1).strip()
-            pts = float(m.group(2))
+            chores.append((m.group(1).strip(), float(m.group(2))))
+        else:
+            # 沒有數字，從家事清單查點數
+            if chores_sheet is None:
+                from sheets import get_chores as _get_chores
+                chores_sheet = _get_chores()
+            matched_chore = next(
+                (c for c in chores_sheet if line in c["name"] or c["name"] in line),
+                None,
+            )
+            pts = matched_chore["points"] if matched_chore else 1.0
+            name = matched_chore["name"] if matched_chore else line
             chores.append((name, pts))
 
-    if len(chores) < 2:
+    if not chores:
         return False
 
-    who = member or "不知道誰"
-    batch_log_points(who, chores)
+    who = who or member or "家人"
+    try:
+        batch_log_points(who, chores)
+        summary = format_weekly_summary()
+    except Exception as e:
+        reply(reply_token, f"記錄失敗：{e}")
+        return True
 
     total = sum(p for _, p in chores)
     total_str = f"{total:.2f}".rstrip('0').rstrip('.')
     lines_out = [f"✅ {name} +{f'{pts:.2f}'.rstrip('0').rstrip('.')}" for name, pts in chores]
-    summary = format_weekly_summary()
     reply(reply_token,
-          "\n".join(lines_out) + f"\n\n共 +{total_str} 點 🎉\n\n{summary}")
+          f"📋 {who} 的家事記錄\n" +
+          "\n".join(lines_out) +
+          f"\n\n共 +{total_str} 點 🎉\n\n{summary}")
     return True
 
 
