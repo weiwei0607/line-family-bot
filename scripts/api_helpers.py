@@ -8,6 +8,7 @@ import requests
 LAT = float(os.environ.get("LOCATION_LAT", "25.04"))
 LON = float(os.environ.get("LOCATION_LON", "121.53"))
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "")
+CALORIENINJAS_KEY = os.environ.get("CALORIENINJAS_KEY", "")
 
 WMO = {
     0: "☀️ 晴天", 1: "🌤 大致晴", 2: "⛅️ 部分多雲", 3: "☁️ 陰天",
@@ -164,18 +165,15 @@ def search_recipes_by_ingredients(ingredients: str) -> list[dict]:
         return []
 
 
-# ── 食物熱量（CalorieNinjas via RapidAPI）──────
+# ── 食物熱量（CalorieNinjas，免費申請 key）──────
 
 def get_nutrition(query: str) -> list[dict]:
-    if not RAPIDAPI_KEY:
+    if not CALORIENINJAS_KEY:
         return []
     try:
         r = requests.get(
-            "https://calorieninjas.p.rapidapi.com/v1/nutrition",
-            headers={
-                "X-RapidAPI-Key": RAPIDAPI_KEY,
-                "X-RapidAPI-Host": "calorieninjas.p.rapidapi.com",
-            },
+            "https://api.calorieninjas.com/v1/nutrition",
+            headers={"X-Api-Key": CALORIENINJAS_KEY},
             params={"query": query},
             timeout=10,
         )
