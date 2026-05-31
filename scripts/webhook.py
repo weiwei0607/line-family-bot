@@ -251,18 +251,16 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
 
     chore_lines = lines[1:]
 
-    # 檢查最後一行是否為成員名稱（純文字、不含數字）
+    # 檢查最後一行是否為已登記的成員名稱
     members_list = get_members()
     who = member or ""
     last = chore_lines[-1] if chore_lines else ""
-    if last and not re.search(r'\d', last) and last not in ["說明", "幫助", "家事清單", "查點數", "購物清單"]:
+    if last and not re.search(r'\d', last):
         matched = next((m for m in members_list if m in last or last in m), None)
         if matched:
             who = matched
             chore_lines = chore_lines[:-1]
-        else:
-            who = last
-            chore_lines = chore_lines[:-1]
+        # 未匹配到成員就保留為家事，不當成員名
 
     # 解析每行：「家事名稱1」或「家事名稱+冰箱1」或純名稱「午餐」
     chore_pattern = re.compile(r'^(.+?)(\d+\.?\d*)$')
