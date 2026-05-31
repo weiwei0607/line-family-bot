@@ -209,11 +209,16 @@ def get_weekly_points() -> dict[str, float]:
     return totals
 
 def format_weekly_summary() -> str:
-    """格式化本週點數總覽，供 bot 回覆用"""
+    """格式化本週點數總覽：固定成員 + 本週有記點的人都顯示"""
     pts = get_weekly_points()
     members = get_members()
+    # 合併：固定成員 + 本週有記點但不在清單裡的人
+    all_names = list(members)
+    for name in pts:
+        if name not in all_names:
+            all_names.append(name)
     lines = ["📊 本週點數統計："]
-    for m in members:
+    for m in all_names:
         p = pts.get(m, 0.0)
         p_str = f"{p:.2f}".rstrip('0').rstrip('.')
         lines.append(f"{m}  {p_str}")
