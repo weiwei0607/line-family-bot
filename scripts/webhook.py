@@ -23,6 +23,7 @@ from sheets import (
     get_member_weekly_chore_points, WEEKLY_CAPS,
     add_declutter, get_declutter_list, complete_declutter,
     add_income, get_declutter_income, cancel_last_record,
+    pay_fine, get_outstanding_fines,
 )
 
 app = Flask(__name__)
@@ -229,6 +230,41 @@ def handle_accounting(reply_token: str, member: str, text: str):
     return False
 
 
+def handle_fine(reply_token: str, member: str, text: str) -> bool:
+    """罰款與欠款指令"""
+    m = re.match(r"^繳罰款\s+(\d+)$", text)
+    if m:
+        if not member:
+            reply(reply_token, "還不知道你是誰，先傳「我是＿＿」😊")
+            return True
+        amount = int(m.group(1))
+        pay_fine(member, amount)
+        balances = get_outstanding_fines(member=member)
+        remaining = balances.get(member, 0)
+        if remaining <= 0:
+            reply(reply_token, f"✅ {member} 已繳 {amount} 元，欠款清零！小本本乾淨了 🎉")
+        else:
+            reply(reply_token, f"✅ {member} 已繳 {amount} 元，還欠 {remaining} 元")
+        return True
+
+    if text in ["欠款", "欠款清單", "小本本"]:
+        balances = get_outstanding_fines()
+        if not balances:
+            reply(reply_token, "📒 小本本是空的，大家都沒有欠款 🎉")
+        else:
+            lines = ["📒 欠款小本本：\n"]
+            for m_name, total in balances.items():
+                if total > 0:
+                    lines.append(f"  {m_name}：欠 {total} 元")
+                elif total < 0:
+                    lines.append(f"  {m_name}：多繳了 {-total} 元")
+            lines.append("\n投幣後傳「繳罰款 金額」登記")
+            reply(reply_token, "\n".join(lines))
+        return True
+
+    return False
+
+
 def handle_declutter(reply_token: str, member: str, text: str) -> bool:
     """斷捨離指令"""
     # 加入待定區
@@ -301,7 +337,7 @@ def handle_declutter(reply_token: str, member: str, text: str) -> bool:
 
 def handle_ai_mention(reply_token: str, text: str):
     """@機器人 問問題"""
-    m = re.match(r"^@?(?:機器人|家管|bot|助理)\s+(.+)", text, re.IGNORECASE)
+    m = re.match(r"^@?(?:機器人|家管|bot|助理|小花)\s+(.+)", text, re.IGNORECASE)
     if m:
         question = m.group(1).strip()
         answer = call_gemini(
@@ -451,6 +487,10 @@ def handle_help(reply_token: str, text: str):
 • 記帳 [金額] [說明] — 記錄支出
 • 今日帳 / 查帳 — 查今日/7天支出
 
+【罰款】
+• 繳罰款 [金額] — 投幣後登記
+• 欠款 / 小本本 — 查累積欠款
+
 【斷捨離】
 • 斷捨離 [物品] — 加入待定區
 • 丟了 [物品] — 標記丟棄
@@ -460,9 +500,9 @@ def handle_help(reply_token: str, text: str):
 
 【其他】
 • 我是 [名字] — 登記身分
-• @機器人 [問題] — AI 問答
+• 助理 [問題] / 小花 [問題] — AI 問答
 
-目標：每週 5 點 🎯""")
+目標：每週 5 點，少一點罰 50 元 🎯""")
         return True
     return False
 
@@ -502,6 +542,7 @@ def handle_message(event: MessageEvent):
         handle_points(reply_token, member, text) or
         handle_shopping(reply_token, member, text) or
         handle_accounting(reply_token, member, text) or
+        handle_fine(reply_token, member, text) or
         handle_declutter(reply_token, member, text) or
         handle_ai_mention(reply_token, text)
     ):

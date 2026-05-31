@@ -241,6 +241,27 @@ def cancel_last_record(member: str, chore_name: str = None) -> dict | None:
     }
 
 
+def get_last_week_points() -> dict[str, float]:
+    """回傳上週每位成員的累積點數"""
+    rows = _read("點數記錄", "A2:D500")
+    d = datetime.now(TW_TZ).date()
+    this_monday = d - timedelta(days=d.weekday())
+    last_monday = this_monday - timedelta(days=7)
+    week_start = last_monday.strftime("%Y-%m-%d")
+    week_end = (this_monday - timedelta(days=1)).strftime("%Y-%m-%d")
+    totals: dict[str, float] = {}
+    for r in rows:
+        if not r or len(r) < 4:
+            continue
+        date_str, member, _, pts = r[0], r[1], r[2], r[3]
+        if week_start <= date_str <= week_end:
+            try:
+                totals[member] = totals.get(member, 0.0) + float(pts)
+            except ValueError:
+                pass
+    return totals
+
+
 def get_member_weekly_breakdown(member: str) -> list[dict]:
     """回傳本週某成員每項家事的累積點數"""
     rows = _read("點數記錄", "A2:D500")
@@ -409,6 +430,38 @@ def complete_declutter(item_name: str, method: str, member: str, amount: int = 0
     matched["method"] = method
     matched["amount"] = amount
     return matched
+
+# ──────────────────────────────────────────────
+# 欠款 Tab: [日期, 成員, 類型(罰款/繳款), 金額, 說明]
+# ──────────────────────────────────────────────
+
+def add_fine(member: str, week_label: str, points: float, amount: int):
+    desc = f"{week_label}週 點數{points:.1f}點不足"
+    _append("欠款", [_today_str(), member, "罰款", amount, desc])
+
+def pay_fine(member: str, amount: int):
+    _append("欠款", [_today_str(), member, "繳款", amount, "投幣繳款"])
+
+def get_outstanding_fines(member: str = None) -> dict[str, int]:
+    """回傳每人累積未繳金額（正數=欠款）"""
+    rows = _read("欠款", "A2:E500")
+    balances: dict[str, int] = {}
+    for r in rows:
+        if len(r) < 4:
+            continue
+        m, type_, amt = r[1], r[2], r[3]
+        try:
+            amt_int = int(str(amt).strip())
+        except (ValueError, TypeError):
+            continue
+        if type_ == "罰款":
+            balances[m] = balances.get(m, 0) + amt_int
+        elif type_ == "繳款":
+            balances[m] = balances.get(m, 0) - amt_int
+    if member:
+        return {member: balances.get(member, 0)}
+    return {m: v for m, v in balances.items() if v != 0}
+
 
 def get_expenses(days: int = 7) -> list[dict]:
     rows = _read("記帳", "A2:F500")
