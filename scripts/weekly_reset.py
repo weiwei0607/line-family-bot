@@ -1,11 +1,11 @@
 """
-每週重置 — 週一 00:00 CST
-重置每週循環的家事，並發送上週點數總結
+每週總結 — 週日 23:59 CST
+發送本週點數統計，點數下週自動從頭計算（依日期 >= 週一 filter）
 """
 
 import os
 import requests
-from sheets import get_members, get_weekly_points, get_chores, reset_chore
+from sheets import get_members, get_weekly_points
 
 GROUP_ID = os.environ["LINE_GROUP_ID"]
 CHANNEL_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
@@ -31,29 +31,22 @@ def main():
     members = get_members()
     pts = get_weekly_points()
 
-    # 上週總結
-    lines = ["🗓️ 上週家事點數總結！\n"]
     sorted_members = sorted(members, key=lambda m: pts.get(m, 0), reverse=True)
 
     medals = ["🥇", "🥈", "🥉"]
+    lines = ["🗓️ 本週家事點數總結！\n"]
     for i, m in enumerate(sorted_members):
         p = pts.get(m, 0)
+        p_str = f"{p:.2f}".rstrip('0').rstrip('.')
         medal = medals[i] if i < 3 else "  "
         status = "✅ 達標" if p >= POINTS_THRESHOLD else "❌ 未達標"
-        lines.append(f"{medal} {m}：{p} 點 {status}")
+        lines.append(f"{medal} {m}：{p_str} 點 {status}")
 
     lines.append(f"\n（每週目標：{POINTS_THRESHOLD} 點）")
-    lines.append("\n新的一週開始囉！大家繼續加油 💪")
+    lines.append("新的一週從明天開始，大家繼續加油 💪")
 
     push("\n".join(lines))
-
-    # 重置每週循環家事（category 含「每週」的）
-    chores = get_chores()
-    for c in chores:
-        if "每週" in c.get("category", "") and c["status"] == "已完成":
-            reset_chore(c["name"])
-
-    print("Weekly reset done.")
+    print("Weekly summary sent.")
 
 
 main()

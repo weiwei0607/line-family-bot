@@ -2,7 +2,7 @@ name: Weekly Chore Reset
 
 on:
   schedule:
-    - cron: '0 16 * * 0'  # 週一 00:00 CST (UTC+8, 週日 16:00 UTC)
+    - cron: '59 15 * * 0'  # 週日 23:59 CST (UTC+8, 週日 15:59 UTC)
   workflow_dispatch:
 
 jobs:
