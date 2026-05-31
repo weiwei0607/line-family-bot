@@ -823,6 +823,9 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
     if text in ["今日宇宙", "宇宙圖片", "NASA", "天文圖", "宇宙"]:
         apod = get_nasa_apod()
         if _q(apod, reply_token): return True
+        if apod and apod.get("_error"):
+            reply(reply_token, f"🌌 {apod['_error']}")
+            return True
         if apod:
             title_zh = smart_translate(apod['title'])
             explain_zh = call_gemini(
@@ -834,7 +837,7 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
             else:
                 reply(reply_token, caption + (f"\n\n▶️ {apod['url']}" if apod.get("url") else ""))
         else:
-            reply(reply_token, "需要設定 NASA_API_KEY 才能使用這個功能")
+            reply(reply_token, "🌌 NASA 暫時無法連線，請稍後再試")
         return True
 
     # ── Chuck Norris ──

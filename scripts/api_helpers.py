@@ -878,7 +878,11 @@ def get_nasa_apod() -> dict | None:
             timeout=12,
         )
         if _check_quota(r): return {"_quota": True}
+        if r.status_code != 200:
+            return {"_error": f"NASA API 回傳 {r.status_code}，請稍後再試"}
         d = r.json()
+        if d.get("error"):
+            return {"_error": f"NASA: {d.get('error', {}).get('message', '未知錯誤')}"}
         return {
             "title": d.get("title", ""),
             "date": d.get("date", ""),
@@ -887,8 +891,8 @@ def get_nasa_apod() -> dict | None:
             "hdurl": d.get("hdurl") or d.get("url", ""),
             "media_type": d.get("media_type", "image"),
         }
-    except Exception:
-        return None
+    except Exception as e:
+        return {"_error": f"NASA 連線失敗：{e}"}
 
 
 # ── 電影（IMDB，fallback）────────────────────────
