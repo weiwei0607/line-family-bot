@@ -694,6 +694,34 @@ def get_number_fact() -> str:
         return ""
 
 
+# ── 翻譯（使用 Gemini 免費高品質翻譯）─────────────
+
+def translate_text(text: str, target_lang: str = "zh-TW", source_lang: str = "auto") -> str:
+    """翻譯文字。target_lang: zh-TW, en, ja, ko, es, fr, de 等"""
+    try:
+        gemini_key = os.environ.get("GEMINI_API_KEY", "")
+        if not gemini_key:
+            return "（需要設定 GEMINI_API_KEY）"
+        lang_name = {
+            "zh-TW": "繁體中文", "zh-CN": "簡體中文", "en": "英文",
+            "ja": "日文", "ko": "韓文", "es": "西班牙文", "fr": "法文",
+            "de": "德文", "th": "泰文", "vi": "越南文", "id": "印尼文",
+        }.get(target_lang, target_lang)
+        prompt = f"把以下文字翻譯成{lang_name}，只給翻譯結果，不要解釋：\n\n{text}"
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/"
+            f"models/gemini-2.5-flash:generateContent?key={gemini_key}"
+        )
+        resp = requests.post(
+            url,
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+            timeout=15,
+        )
+        return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as e:
+        return f"翻譯失敗：{e}"
+
+
 # ── 電影（IMDB，fallback）────────────────────────
 
 def get_movie_by_genre(genre: str) -> dict | None:

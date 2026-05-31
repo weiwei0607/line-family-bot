@@ -13,7 +13,7 @@ from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi,
     ReplyMessageRequest, TextMessage, ImageMessage,
 )
-from linebot.v3.webhooks import MessageEvent, TextMessageContent
+from linebot.v3.webhooks import MessageEvent, TextMessageContent, AudioMessageContent
 from api_helpers import (
     format_weather_block, get_advice, get_horoscope, get_fun_fact,
     search_recipes_by_ingredients, get_nutrition, get_movie_by_genre,
@@ -24,8 +24,7 @@ from api_helpers import (
     get_astronomy_fact, get_calories_burned,
     get_jisho, get_kanji_info, get_random_jlpt_word,
     get_spanish_dict, get_meal_random, get_open_trivia, get_number_fact,
-    JLPT_N5_KANJI,
-    RAPIDAPI_KEY,
+    translate_text, JLPT_N5_KANJI, RAPIDAPI_KEY,
 )
 
 from sheets import (
@@ -40,6 +39,10 @@ from sheets import (
 )
 
 app = Flask(__name__)
+
+# 註冊 Daily Dose API
+from dose_api import dose_bp
+app.register_blueprint(dose_bp)
 
 _token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 _secret = os.environ.get("LINE_CHANNEL_SECRET", "")
@@ -829,6 +832,38 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
             reply(reply_token, call_gemini("給我一個關於數字的有趣冷知識，用繁體中文"))
         return True
 
+    # ── 翻譯 ──
+    m = re.match(r"^(?:翻譯|翻|translate)\s*(?:成?([\w\-]+)\s+)?(.+)", text, re.IGNORECASE)
+    if m and m.group(2):
+        target = (m.group(1) or "zh-TW").strip().lower()
+        to_translate = m.group(2).strip()
+        lang_aliases = {
+            "中文": "zh-TW", "繁中": "zh-TW", "繁體中文": "zh-TW",
+            "簡中": "zh-CN", "簡體中文": "zh-CN",
+            "英文": "en", "英": "en", "english": "en",
+            "日文": "ja", "日": "ja", "japanese": "ja",
+            "韓文": "ko", "韓": "ko", "korean": "ko",
+            "西文": "es", "西班牙文": "es", "spanish": "es",
+            "法文": "fr", "法": "fr", "french": "fr",
+            "德文": "de", "德": "de", "german": "de",
+            "泰文": "th", "泰": "th", "thai": "th",
+            "越文": "vi", "越南文": "vi", "vietnamese": "vi",
+            "印尼文": "id", "indonesian": "id",
+        }
+        target = lang_aliases.get(target, target)
+        lang_display = {
+            "zh-TW": "繁體中文", "zh-CN": "簡體中文", "en": "英文",
+            "ja": "日文", "ko": "韓文", "es": "西班牙文", "fr": "法文",
+            "de": "德文", "th": "泰文", "vi": "越南文", "id": "印尼文",
+        }.get(target, target)
+        result = translate_text(to_translate, target)
+        reply(reply_token, f"🌐 {lang_display}翻譯：\n\n{result}")
+        return True
+
+    if text in ["翻譯", "translate"]:
+        reply(reply_token, "請傳「翻譯 [文字]」或「翻譯成英文 [文字]」\n例：翻譯成日文 你好")
+        return True
+
     return False
 
 
@@ -1048,6 +1083,31 @@ def webhook():
         abort(400)
     return "OK"
 
+def _process_text_message(reply_token: str, text: str, source, member: str = ""):
+    """處理文字訊息的核心邏輯（文字/語音轉文字共用）"""
+    if (
+        handle_admin(reply_token, source, text) or
+        handle_batch_log(reply_token, member, text) or
+        handle_help(reply_token, text) or
+        handle_chores(reply_token, member, text) or
+        handle_points(reply_token, member, text) or
+        handle_shopping(reply_token, member, text) or
+        handle_accounting(reply_token, member, text) or
+        handle_fine(reply_token, member, text) or
+        handle_declutter(reply_token, member, text) or
+        handle_fun(reply_token, source, text) or
+        handle_ai_mention(reply_token, text)
+    ):
+        return
+
+    # 被 @ 提及時 AI 回答
+    if hasattr(source, "mention") and source.mention:
+        answer = call_gemini(
+            f"你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。\n\n問題：{text}"
+        )
+        reply(reply_token, answer)
+
+
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event: MessageEvent):
     if not hasattr(event, "reply_token") or not event.reply_token:
@@ -1060,28 +1120,84 @@ def handle_message(event: MessageEvent):
     if hasattr(event, "source") and hasattr(event.source, "user_id"):
         member = _resolve_member(event.source.user_id)
 
-    if (
-        handle_admin(reply_token, event, text) or
-        handle_batch_log(reply_token, member, text) or
-        handle_help(reply_token, text) or
-        handle_chores(reply_token, member, text) or
-        handle_points(reply_token, member, text) or
-        handle_shopping(reply_token, member, text) or
-        handle_accounting(reply_token, member, text) or
-        handle_fine(reply_token, member, text) or
-        handle_declutter(reply_token, member, text) or
-        handle_fun(reply_token, event.source, text) or
-        handle_ai_mention(reply_token, text)
-    ):
+    _process_text_message(reply_token, text, event.source, member)
+
+
+# ── 語音訊息處理（Speech-to-Text）────────────────
+
+@handler.add(MessageEvent, message=AudioMessageContent)
+def handle_audio_message(event: MessageEvent):
+    """接收語音訊息，下載音檔後用 Gemini 轉文字，再當作文本處理"""
+    if not hasattr(event, "reply_token") or not event.reply_token:
         return
 
-    # 被 @ 提及時 AI 回答
-    if hasattr(event, "message") and hasattr(event.message, "mention"):
-        if event.message.mention:
-            answer = call_gemini(
-                f"你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。\n\n問題：{text}"
-            )
-            reply(reply_token, answer)
+    reply_token = event.reply_token
+    audio = event.message
+
+    # 取得音檔 URL
+    audio_url = None
+    if hasattr(audio, "content_provider") and audio.content_provider:
+        cp = audio.content_provider
+        if hasattr(cp, "original_content_url") and cp.original_content_url:
+            audio_url = cp.original_content_url
+        elif hasattr(cp, "content_url") and cp.content_url:
+            audio_url = cp.content_url
+
+    if not audio_url:
+        reply(reply_token, "🎤 無法取得語音檔案，請確認設定")
+        return
+
+    # 下載音檔
+    try:
+        r = requests.get(audio_url, timeout=15)
+        r.raise_for_status()
+        audio_bytes = r.content
+    except Exception as e:
+        reply(reply_token, f"🎤 語音下載失敗：{e}")
+        return
+
+    # 用 Gemini 做語音轉文字
+    if not GEMINI_KEY:
+        reply(reply_token, "🎤 語音轉文字需要設定 GEMINI_API_KEY")
+        return
+
+    try:
+        import base64
+        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        # 推測格式（LINE 語音通常是 m4a/aac）
+        mime_type = "audio/mpeg"  # Gemini 接受 audio/mpeg, audio/mp3, audio/wav
+
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/"
+            f"models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
+        )
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": "請把這段語音轉成文字，只給轉錄結果，不要任何解釋。如果是中文請用繁體中文。"},
+                    {"inline_data": {"mime_type": mime_type, "data": audio_b64}},
+                ]
+            }]
+        }
+        resp = requests.post(url, json=payload, timeout=30)
+        transcript = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as e:
+        reply(reply_token, f"🎤 語音轉文字失敗：{e}")
+        return
+
+    if not transcript:
+        reply(reply_token, "🎤 聽不清楚，請再說一次")
+        return
+
+    # 告訴使用者聽到了什麼
+    reply(reply_token, f"🎤 聽到：「{transcript[:80]}{'...' if len(transcript) > 80 else ''}」")
+
+    # 繼續當作文本處理
+    member = ""
+    if hasattr(event, "source") and hasattr(event.source, "user_id"):
+        member = _resolve_member(event.source.user_id)
+
+    _process_text_message(reply_token, transcript, event.source, member)
 
 
 # user_id → 成員名對照
