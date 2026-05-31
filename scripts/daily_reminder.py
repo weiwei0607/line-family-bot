@@ -30,7 +30,7 @@ def push(text: str):
 def main():
     members = get_members()
     pts = get_weekly_points()
-    chores = get_chores(only_pending=True)
+    chores = get_chores()
 
     # 點數不足的人
     low_pts = [m for m in members if pts.get(m, 0) < POINTS_THRESHOLD]

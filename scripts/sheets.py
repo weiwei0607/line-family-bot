@@ -205,6 +205,22 @@ def reset_chore(chore_name: str):
 # 點數記錄 Tab: [日期, 成員, 任務, 點數, 時間]
 # ──────────────────────────────────────────────
 
+def get_member_weekly_breakdown(member: str) -> list[dict]:
+    """回傳本週某成員每項家事的累積點數"""
+    rows = _read("點數記錄", "A2:D500")
+    week_start = _week_start()
+    breakdown: dict[str, float] = {}
+    for r in rows:
+        if not r or len(r) < 4:
+            continue
+        date_str, m, chore, pts = r[0], r[1], r[2], r[3]
+        if date_str >= week_start and m == member:
+            try:
+                breakdown[chore] = breakdown.get(chore, 0.0) + float(pts)
+            except ValueError:
+                pass
+    return [{"name": k, "points": v} for k, v in breakdown.items()]
+
 def get_weekly_points() -> dict[str, float]:
     """回傳本週每位成員的累積點數"""
     rows = _read("點數記錄", "A2:D500")

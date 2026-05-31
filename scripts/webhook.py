@@ -19,7 +19,8 @@ from sheets import (
     bg, get_members, get_chores, complete_chore, add_chore,
     get_weekly_points, format_weekly_summary, register_member,
     batch_log_points, get_shopping_list, add_shopping, complete_shopping,
-    add_expense, get_expenses,
+    add_expense, get_expenses, get_member_weekly_breakdown,
+    get_member_weekly_chore_points, WEEKLY_CAPS,
 )
 
 app = Flask(__name__)
@@ -29,7 +30,7 @@ _secret = os.environ.get("LINE_CHANNEL_SECRET", "")
 configuration = Configuration(access_token=_token)
 handler = WebhookHandler(_secret)
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
-POINTS_THRESHOLD = int(os.environ.get("POINTS_THRESHOLD", "5"))  # 每週最低點數
+POINTS_THRESHOLD = int(os.environ.get("POINTS_THRESHOLD", "5"))
 
 # ─── 工具函數 ─────────────────────────────────
 
@@ -59,19 +60,10 @@ def call_gemini(prompt: str) -> str:
     except Exception as e:
         return f"AI 回答失敗：{e}"
 
-def extract_member(text: str) -> str:
-    """從訊息嘗試提取成員名字，回傳空字串代表未知"""
-    members = get_members()
-    for m in members:
-        if m in text:
-            return m
-    return ""
-
 # ─── 指令處理 ─────────────────────────────────
 
 def handle_chores(reply_token: str, member: str, text: str):
     """處理家事相關指令"""
-    # 完成家事：「完成 洗碗」「做了 掃地」
     m = re.match(r"^(完成|做了|做好了|完成了)\s*(.+)", text)
     if m:
         chore_name = m.group(2).strip()
@@ -88,22 +80,22 @@ def handle_chores(reply_token: str, member: str, text: str):
         else:
             reply(reply_token,
                   f"找不到「{chore_name}」這個家事耶，確認一下名稱是否正確？\n"
-                  f"輸入「家事清單」看看所有待完成家事")
+                  f"輸入「家事清單」看看所有家事")
         return True
 
-    # 查家事清單
     if text in ["家事清單", "家事", "待完成", "還有什麼家事"]:
-        chores = get_chores(only_pending=True)
+        chores = get_chores()
         if not chores:
-            reply(reply_token, "🎉 所有家事都完成了！家裡超乾淨的～")
+            reply(reply_token, "🎉 家事清單是空的！")
         else:
-            lines = ["📋 待完成家事：\n"]
+            lines = ["📋 家事清單：\n"]
             for c in chores:
-                lines.append(f"• {c['name']}（{c['points']}點）")
+                cap = WEEKLY_CAPS.get(c['name'])
+                cap_str = f"（上限{cap}點/週）" if cap else ""
+                lines.append(f"• {c['name']}  {c['points']}點{cap_str}")
             reply(reply_token, "\n".join(lines))
         return True
 
-    # 新增家事（管理員用）：「新增家事 洗碗 2點」
     m = re.match(r"^新增家事\s+(.+?)(\s+(\d+)點?)?$", text)
     if m:
         name = m.group(1).strip()
@@ -115,25 +107,46 @@ def handle_chores(reply_token: str, member: str, text: str):
     return False
 
 
-def handle_points(reply_token: str, text: str):
-    """查詢點數排行"""
+def handle_points(reply_token: str, member: str, text: str):
+    """查詢點數"""
     if text in ["點數", "查點數", "點數排行", "積分", "本週點數"]:
         pts = get_weekly_points()
         members = get_members()
         lines = ["🏆 本週家事點數：\n"]
         for m in members:
             p = pts.get(m, 0)
+            p_str = f"{p:.2f}".rstrip('0').rstrip('.')
             warn = " ⚠️ 未達標" if p < POINTS_THRESHOLD else " ✅"
-            lines.append(f"{m}：{p} 點{warn}")
+            lines.append(f"{m}：{p_str} 點{warn}")
         lines.append(f"\n（目標：每週 {POINTS_THRESHOLD} 點以上）")
         reply(reply_token, "\n".join(lines))
         return True
+
+    if text in ["我的點數", "我的紀錄", "我做了什麼", "我的家事"]:
+        if not member:
+            reply(reply_token, "還不知道你是誰，先傳「我是＿＿」讓我記住你 😊")
+            return True
+        breakdown = get_member_weekly_breakdown(member)
+        total = sum(d["points"] for d in breakdown)
+        total_str = f"{total:.2f}".rstrip('0').rstrip('.')
+        if not breakdown:
+            reply(reply_token, f"{member} 本週還沒有記錄，快去做家事！💪")
+        else:
+            lines = [f"📋 {member} 本週家事：\n"]
+            for d in breakdown:
+                p_str = f"{d['points']:.2f}".rstrip('0').rstrip('.')
+                lines.append(f"• {d['name']}  {p_str}點")
+            lines.append(f"\n合計：{total_str} 點")
+            status = "✅ 已達標" if total >= POINTS_THRESHOLD else f"⚠️ 距目標還差 {POINTS_THRESHOLD - total:.2f}".rstrip('0').rstrip('.') + " 點"
+            lines.append(status)
+            reply(reply_token, "\n".join(lines))
+        return True
+
     return False
 
 
 def handle_shopping(reply_token: str, member: str, text: str):
     """購物清單指令"""
-    # 新增購物：「加購物 牛奶」「買 洗髮精」
     m = re.match(r"^(加購物|要買|買|購物加)\s+(.+)", text)
     if m:
         item = m.group(2).strip()
@@ -141,7 +154,6 @@ def handle_shopping(reply_token: str, member: str, text: str):
         reply(reply_token, f"🛒 已加入購物清單：{item}")
         return True
 
-    # 購物完成：「買好了 牛奶」「已買 洗髮精」
     m = re.match(r"^(買好了|已買|買到了|買了)\s+(.+)", text)
     if m:
         item = m.group(2).strip()
@@ -152,7 +164,6 @@ def handle_shopping(reply_token: str, member: str, text: str):
             reply(reply_token, f"找不到「{item}」在購物清單裡喔")
         return True
 
-    # 查購物清單
     if text in ["購物清單", "要買什麼", "清單"]:
         items = get_shopping_list(only_pending=True)
         if not items:
@@ -169,7 +180,6 @@ def handle_shopping(reply_token: str, member: str, text: str):
 
 def handle_accounting(reply_token: str, member: str, text: str):
     """家庭記帳"""
-    # 記帳格式：「記帳 250 飲食 買晚餐」或「記帳 250 買晚餐」
     m = re.match(r"^記帳\s+(\d+)\s+(.+?)(?:\s+(.+))?$", text)
     if m:
         amount = int(m.group(1))
@@ -184,7 +194,6 @@ def handle_accounting(reply_token: str, member: str, text: str):
               f"💰 已記帳：{category} - {desc}，{amount} 元\n（{member or ''}）")
         return True
 
-    # 查帳
     if text in ["帳", "帳目", "今日帳", "本週帳", "查帳"]:
         days = 1 if "今日" in text else 7
         exps = get_expenses(days=days)
@@ -192,7 +201,8 @@ def handle_accounting(reply_token: str, member: str, text: str):
             reply(reply_token, f"最近 {days} 天沒有記帳紀錄")
         else:
             total = sum(e["amount"] for e in exps)
-            lines = [f"💰 最近 {days} 天支出（共 {total} 元）：\n"]
+            label = "今日" if days == 1 else "最近7天"
+            lines = [f"💰 {label}支出（共 {total} 元）：\n"]
             for e in exps[-10:]:
                 lines.append(f"• {e['date']} {e['category']} {e['desc']} {e['amount']}元（{e['by']}）")
             reply(reply_token, "\n".join(lines))
@@ -203,7 +213,6 @@ def handle_accounting(reply_token: str, member: str, text: str):
 
 def handle_ai_mention(reply_token: str, text: str):
     """@機器人 問問題"""
-    # 支援：@家管 問題、機器人 問題、@bot 問題
     m = re.match(r"^@?(?:機器人|家管|bot|助理)\s+(.+)", text, re.IGNORECASE)
     if m:
         question = m.group(1).strip()
@@ -216,21 +225,20 @@ def handle_ai_mention(reply_token: str, text: str):
 
 
 def handle_admin(reply_token: str, event: MessageEvent, text: str):
-    """管理指令（取群組 ID、自報名等）"""
+    """管理指令"""
     if text in ["群組id", "群組ID", "groupid", "群id"]:
         source = event.source
         gid = getattr(source, "group_id", None) or getattr(source, "room_id", None) or "不是群組訊息"
         reply(reply_token, f"群組 ID：{gid}")
         return True
 
-    # 自報名：「我是媽媽」「叫我姊姊」「我叫爸爸」
     m = re.match(r"^(?:我是|叫我|我叫)\s*(.+)", text)
     if m:
         name = m.group(1).strip()
         user_id = getattr(event.source, "user_id", "")
         if user_id and name:
             bg(register_member, user_id, name)
-            _member_cache[user_id] = name  # 立即更新快取
+            _member_cache[user_id] = name
             reply(reply_token, f"好的！以後叫你「{name}」😊\n"
                                f"完成家事時傳「完成 家事名稱」就會記在你名下囉")
         return True
@@ -239,19 +247,18 @@ def handle_admin(reply_token: str, event: MessageEvent, text: str):
 
 
 def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
-    """批量登錄格式：第一行「完成」或「5/25 完成」，後續每行一個家事（可附點數或不附）"""
+    """批量登錄：第一行「完成」，後續每行一個家事"""
     lines = [l.strip() for l in text.strip().splitlines()]
     if len(lines) < 2:
         return False
 
-    # 第一行必須是「完成」標頭才觸發批量模式
     first = lines[0]
     if first not in ["完成", "完成了"] and not re.match(r'^\d+[/／]\d+\s*完成', first):
         return False
 
     chore_lines = lines[1:]
 
-    # 檢查最後一行是否為已登記的成員名稱
+    # 最後一行只有匹配到已登記成員才視為名字
     members_list = get_members()
     who = member or ""
     last = chore_lines[-1] if chore_lines else ""
@@ -260,12 +267,10 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
         if matched:
             who = matched
             chore_lines = chore_lines[:-1]
-        # 未匹配到成員就保留為家事，不當成員名
 
-    # 解析每行：「家事名稱1」或「家事名稱+冰箱1」或純名稱「午餐」
+    # 解析家事行
     chore_pattern = re.compile(r'^(.+?)(\d+\.?\d*)$')
-    chores_sheet: list[dict] | None = None
-
+    chores_sheet = None
     chores: list[tuple[str, float]] = []
     for line in chore_lines:
         if not line:
@@ -274,10 +279,8 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
         if m:
             chores.append((m.group(1).strip(), float(m.group(2))))
         else:
-            # 沒有數字，從家事清單查點數
             if chores_sheet is None:
-                from sheets import get_chores as _get_chores
-                chores_sheet = _get_chores()
+                chores_sheet = get_chores()
             matched_chore = next(
                 (c for c in chores_sheet if line in c["name"] or c["name"] in line),
                 None,
@@ -287,23 +290,45 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
             chores.append((name, pts))
 
     if not chores:
-        return False
+        reply(reply_token, "沒有找到任何家事，請確認格式：\n完成\n家事名稱\n家事名稱")
+        return True
 
+    # 上限檢查（跳過超過上限的項目）
     who = who or member or "家人"
+    valid_chores: list[tuple[str, float]] = []
+    capped_names: list[str] = []
+    for name, pts in chores:
+        cap = WEEKLY_CAPS.get(name)
+        if cap is not None:
+            already = get_member_weekly_chore_points(who, name)
+            remaining = cap - already
+            if remaining <= 0:
+                capped_names.append(name)
+                continue
+            pts = min(pts, remaining)
+        valid_chores.append((name, pts))
+
+    if not valid_chores:
+        cap_str = "、".join(capped_names)
+        reply(reply_token, f"⚠️ {who} 本週「{cap_str}」已達點數上限，沒有新增記錄。")
+        return True
+
     try:
-        batch_log_points(who, chores)
+        batch_log_points(who, valid_chores)
         summary = format_weekly_summary()
     except Exception as e:
         reply(reply_token, f"記錄失敗：{e}")
         return True
 
-    total = sum(p for _, p in chores)
+    total = sum(p for _, p in valid_chores)
     total_str = f"{total:.2f}".rstrip('0').rstrip('.')
-    lines_out = [f"✅ {name} +{f'{pts:.2f}'.rstrip('0').rstrip('.')}" for name, pts in chores]
-    reply(reply_token,
-          f"📋 {who} 的家事記錄\n" +
-          "\n".join(lines_out) +
-          f"\n\n共 +{total_str} 點 🎉\n\n{summary}")
+    lines_out = [f"✅ {name} +{f'{pts:.2f}'.rstrip('0').rstrip('.')}" for name, pts in valid_chores]
+
+    msg = f"📋 {who} 的家事記錄\n" + "\n".join(lines_out) + f"\n\n共 +{total_str} 點 🎉"
+    if capped_names:
+        msg += f"\n⚠️ 已達上限略過：{'、'.join(capped_names)}"
+    msg += f"\n\n{summary}"
+    reply(reply_token, msg)
     return True
 
 
@@ -313,11 +338,12 @@ def handle_help(reply_token: str, text: str):
 
 【家事】
 • 完成 [家事名稱] — 標記完成並獲點
-• 家事清單 — 查待完成家事
+• 家事清單 — 查所有家事及點數
 • 新增家事 [名稱] [點數] — 新增項目
 
 【點數】
-• 查點數 — 看本週大家的點數排行
+• 查點數 — 全員本週排行
+• 我的點數 — 看自己做了哪些
 
 【購物】
 • 買 [項目] — 加入購物清單
@@ -326,7 +352,7 @@ def handle_help(reply_token: str, text: str):
 
 【記帳】
 • 記帳 [金額] [說明] — 記錄支出
-• 查帳 — 查最近7天
+• 今日帳 / 查帳 — 查今日/7天支出
 
 【AI 問答】
 • @機器人 [問題] — 問任何問題
@@ -359,11 +385,8 @@ def handle_message(event: MessageEvent):
     text = event.message.text.strip()
     reply_token = event.reply_token
 
-    # 辨識發言成員（需在群組中可辨識）
     member = ""
     if hasattr(event, "source") and hasattr(event.source, "user_id"):
-        # 嘗試從暱稱匹配 — 簡化做法：直接從文字或設定取名
-        # 可在 設定 tab 第二欄設 user_id 對應名字
         member = _resolve_member(event.source.user_id)
 
     if (
@@ -371,14 +394,14 @@ def handle_message(event: MessageEvent):
         handle_batch_log(reply_token, member, text) or
         handle_help(reply_token, text) or
         handle_chores(reply_token, member, text) or
-        handle_points(reply_token, text) or
+        handle_points(reply_token, member, text) or
         handle_shopping(reply_token, member, text) or
         handle_accounting(reply_token, member, text) or
         handle_ai_mention(reply_token, text)
     ):
         return
 
-    # 如果在群組中被@提及，嘗試 AI 回答
+    # 被 @ 提及時 AI 回答
     if hasattr(event, "message") and hasattr(event.message, "mention"):
         if event.message.mention:
             answer = call_gemini(
@@ -387,7 +410,7 @@ def handle_message(event: MessageEvent):
             reply(reply_token, answer)
 
 
-# user_id → 成員名對照（從設定 tab 讀）
+# user_id → 成員名對照
 _member_cache: dict[str, str] = {}
 _cache_ts: float = 0
 
@@ -406,7 +429,7 @@ def _refresh_member_cache():
         rows = _read("設定", "A2:B30")
         for r in rows:
             if len(r) >= 2 and r[0].strip() and r[1].strip():
-                _member_cache[r[1].strip()] = r[0].strip()  # user_id → 名字
+                _member_cache[r[1].strip()] = r[0].strip()
     except Exception:
         pass
 
