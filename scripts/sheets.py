@@ -97,7 +97,7 @@ def get_chores(only_pending=False) -> list[dict]:
         chore = {
             "row": i + 2,
             "name": r[0].strip() if len(r) > 0 else "",
-            "points": int(r[1]) if len(r) > 1 and r[1].strip().isdigit() else 1,
+            "points": float(r[1]) if len(r) > 1 and r[1].strip().replace('.','',1).isdigit() else 1,
             "category": r[2].strip() if len(r) > 2 else "一般",
             "status": r[3].strip() if len(r) > 3 else "待完成",
             "done_by": r[4].strip() if len(r) > 4 else "",
@@ -108,6 +108,26 @@ def get_chores(only_pending=False) -> list[dict]:
         chores.append(chore)
     return chores
 
+# 每週點數上限設定（家事名稱 → 每週最多幾點）
+WEEKLY_CAPS: dict[str, float] = {
+    "掃地": 2.0,
+}
+
+def get_member_weekly_chore_points(member: str, chore_name: str) -> float:
+    """查詢本週某成員在某項家事累積的點數"""
+    rows = _read("點數記錄", "A2:D500")
+    week_start = _week_start()
+    total = 0.0
+    for r in rows:
+        if len(r) < 4:
+            continue
+        if r[0] >= week_start and r[1] == member and r[2] == chore_name:
+            try:
+                total += float(r[3])
+            except ValueError:
+                pass
+    return total
+
 def complete_chore(chore_name: str, member: str) -> dict | None:
     chores = get_chores(only_pending=True)
     matched = next(
@@ -116,6 +136,17 @@ def complete_chore(chore_name: str, member: str) -> dict | None:
     )
     if not matched:
         return None
+
+    # 檢查每週上限
+    cap = WEEKLY_CAPS.get(matched["name"])
+    if cap is not None:
+        already = get_member_weekly_chore_points(member, matched["name"])
+        if already >= cap:
+            matched["capped"] = True
+            matched["cap"] = cap
+            matched["already"] = already
+            return matched
+
     row = matched["row"]
     svc = _get_service()
     sid = _get_sheet_id()
@@ -125,9 +156,8 @@ def complete_chore(chore_name: str, member: str) -> dict | None:
         valueInputOption="USER_ENTERED",
         body={"values": [["已完成", member, _now_str()]]},
     ).execute()
-    # Reset next day (add as pending again for recurring chores)
-    # Also log points
     _append("點數記錄", [_today_str(), member, matched["name"], matched["points"], _now_str()])
+    matched["capped"] = False
     return matched
 
 def add_chore(name: str, points: int = 1, category: str = "一般"):
@@ -151,21 +181,32 @@ def reset_chore(chore_name: str):
 # 點數記錄 Tab: [日期, 成員, 任務, 點數, 時間]
 # ──────────────────────────────────────────────
 
-def get_weekly_points() -> dict[str, int]:
+def get_weekly_points() -> dict[str, float]:
     """回傳本週每位成員的累積點數"""
     rows = _read("點數記錄", "A2:D500")
     week_start = _week_start()
-    totals: dict[str, int] = {}
+    totals: dict[str, float] = {}
     for r in rows:
         if not r or len(r) < 4:
             continue
         date_str, member, _, pts = r[0], r[1], r[2], r[3]
         if date_str >= week_start:
             try:
-                totals[member] = totals.get(member, 0) + int(pts)
+                totals[member] = totals.get(member, 0.0) + float(pts)
             except ValueError:
                 pass
     return totals
+
+def format_weekly_summary() -> str:
+    """格式化本週點數總覽，供 bot 回覆用"""
+    pts = get_weekly_points()
+    members = get_members()
+    lines = ["📊 本週點數統計："]
+    for m in members:
+        p = pts.get(m, 0.0)
+        p_str = f"{p:.2f}".rstrip('0').rstrip('.')
+        lines.append(f"{m}  {p_str}")
+    return "\n".join(lines)
 
 
 # ──────────────────────────────────────────────

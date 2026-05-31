@@ -17,8 +17,8 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
 from sheets import (
     bg, get_members, get_chores, complete_chore, add_chore,
-    get_weekly_points, get_shopping_list, add_shopping, complete_shopping,
-    add_expense, get_expenses,
+    get_weekly_points, format_weekly_summary, get_shopping_list,
+    add_shopping, complete_shopping, add_expense, get_expenses,
 )
 
 app = Flask(__name__)
@@ -75,11 +75,15 @@ def handle_chores(reply_token: str, member: str, text: str):
     if m:
         chore_name = m.group(2).strip()
         result = complete_chore(chore_name, member or "不知道誰")
-        if result:
-            pts = result["points"]
+        if result and result.get("capped"):
             reply(reply_token,
-                  f"✅ {member or '你'} 完成了「{result['name']}」！\n"
-                  f"獲得 {pts} 點，辛苦了 🎉")
+                  f"⚠️ {member or '你'} 本週「{result['name']}」已達上限 {result['cap']} 點，不再計分喔！")
+        elif result:
+            pts = result["points"]
+            pts_str = f"{pts:.2f}".rstrip('0').rstrip('.')
+            summary = format_weekly_summary()
+            reply(reply_token,
+                  f"✅ {member or '你'} 完成了「{result['name']}」！獲得 {pts_str} 點 🎉\n\n{summary}")
         else:
             reply(reply_token,
                   f"找不到「{chore_name}」這個家事耶，確認一下名稱是否正確？\n"
