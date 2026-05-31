@@ -1102,37 +1102,15 @@ def _translate_just_translated(text: str, target: str = "zh-TW") -> str | None:
     except Exception:
         return None
 
-def _translate_microsoft(text: str, target: str = "zh-TW") -> str | None:
-    """Microsoft Translator Text"""
-    try:
-        tl = target  # Microsoft 支援 zh-Hant / zh-Hans / en / ja 等
-        r = requests.post(
-            "https://microsoft-translator-text.p.rapidapi.com/translate",
-            headers={**_rapidapi_headers("microsoft-translator-text.p.rapidapi.com"), "Content-Type": "application/json"},
-            params={"api-version": "3.0", "to": tl},
-            json=[{"Text": text}],
-            timeout=10,
-        )
-        if r.status_code != 200:
-            return None
-        d = r.json()
-        if isinstance(d, list) and len(d) > 0:
-            translations = d[0].get("translations", [])
-            if translations and len(translations) > 0:
-                return translations[0].get("text", "")
-        return None
-    except Exception:
-        return None
-
 def smart_translate(text: str, target: str = "zh-TW") -> str:
-    """智慧翻譯：OpenL → Just Translated → Microsoft → AI Translate → Gemini fallback"""
+    """智慧翻譯：OpenL → Just Translated → AI Translate → Gemini fallback"""
     if not text or not text.strip():
         return text
     # 已經是中文就直接回傳
     if any(ord(c) > 127 for c in text[:30]):
         return text
     # 輪班嘗試 RapidAPI 翻譯
-    for fn in (_translate_openl, _translate_just_translated, _translate_microsoft, _translate_ai_translate):
+    for fn in (_translate_openl, _translate_just_translated, _translate_ai_translate):
         result = fn(text, target)
         if result and result.strip() and result != text:
             return result
