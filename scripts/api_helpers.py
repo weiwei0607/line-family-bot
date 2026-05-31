@@ -1309,7 +1309,7 @@ def _get_astrologer(sign: str) -> dict | None:
     except Exception:
         return None
 
-def _get_starmatch(sign1: str, sign2: str) -> dict | None:
+def get_starmatch(sign1: str, sign2: str) -> dict | None:
     """星座配對"""
     try:
         r = requests.get(
