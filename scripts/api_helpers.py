@@ -871,28 +871,35 @@ def translate_text(text: str, target_lang: str = "zh-TW", source_lang: str = "au
 
 def get_nasa_apod() -> dict | None:
     key = NASA_KEY or "DEMO_KEY"  # DEMO_KEY: 50次/天，不需要註冊
-    try:
-        r = requests.get(
-            "https://api.nasa.gov/planetary/apod",
-            params={"api_key": key},
-            timeout=12,
-        )
-        if _check_quota(r): return {"_quota": True}
-        if r.status_code != 200:
-            return {"_error": f"NASA API 回傳 {r.status_code}，請稍後再試"}
-        d = r.json()
-        if d.get("error"):
-            return {"_error": f"NASA: {d.get('error', {}).get('message', '未知錯誤')}"}
-        return {
-            "title": d.get("title", ""),
-            "date": d.get("date", ""),
-            "explanation": (d.get("explanation") or "")[:500],
-            "url": d.get("url", ""),
-            "hdurl": d.get("hdurl") or d.get("url", ""),
-            "media_type": d.get("media_type", "image"),
-        }
-    except Exception as e:
-        return {"_error": f"NASA 連線失敗：{e}"}
+    for attempt in range(3):
+        try:
+            r = requests.get(
+                "https://api.nasa.gov/planetary/apod",
+                params={"api_key": key},
+                timeout=30 if attempt == 0 else 45,
+            )
+            if _check_quota(r): return {"_quota": True}
+            if r.status_code != 200:
+                return {"_error": f"NASA API 回傳 {r.status_code}，請稍後再試"}
+            d = r.json()
+            if d.get("error"):
+                return {"_error": f"NASA: {d.get('error', {}).get('message', '未知錯誤')}"}
+            return {
+                "title": d.get("title", ""),
+                "date": d.get("date", ""),
+                "explanation": (d.get("explanation") or "")[:500],
+                "url": d.get("url", ""),
+                "hdurl": d.get("hdurl") or d.get("url", ""),
+                "media_type": d.get("media_type", "image"),
+            }
+        except requests.exceptions.Timeout:
+            if attempt < 2:
+                time.sleep(2)
+                continue
+            return {"_error": "NASA 伺服器回應較慢，請稍後再試 🌌"}
+        except Exception as e:
+            return {"_error": f"NASA 暫時無法連線：{e}"}
+    return {"_error": "NASA 暫時無法連線，請稍後再試 🌌"}
 
 
 # ── 電影（IMDB，fallback）────────────────────────
