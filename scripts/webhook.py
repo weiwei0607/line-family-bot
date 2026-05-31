@@ -182,7 +182,7 @@ def handle_shopping(reply_token: str, member: str, text: str):
             reply(reply_token, f"找不到「{item}」在購物清單裡喔")
         return True
 
-    if text in ["購物清單", "要買什麼", "清單"]:
+    if text in ["購物清單", "要買什麼"]:
         items = get_shopping_list(only_pending=True)
         if not items:
             reply(reply_token, "🛒 購物清單是空的！")
@@ -428,17 +428,19 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
 
 
 def handle_help(reply_token: str, text: str):
-    if text in ["說明", "幫助", "功能", "help", "指令"]:
-        reply(reply_token, """🏠 家管助理使用說明
+    if text in ["說明", "幫助", "功能", "help", "指令", "指令清單", "清單"]:
+        reply(reply_token, """🏠 家管助理指令清單
 
 【家事】
-• 完成 [家事名稱] — 標記完成並獲點
-• 家事清單 — 查所有家事及點數
-• 新增家事 [名稱] [點數] — 新增項目
+• 完成 [家事名稱]
+• 完成（換行列多項家事）— 批量記錄
+• 家事清單 — 查所有家事
+• 新增家事 [名稱] [點數]
 
 【點數】
 • 查點數 — 全員本週排行
-• 我的點數 — 看自己做了哪些
+• 我的點數 — 自己本週明細
+• 取消記錄 [家事名稱] — 取消最近一筆
 
 【購物】
 • 買 [項目] — 加入購物清單
@@ -452,14 +454,15 @@ def handle_help(reply_token: str, text: str):
 【斷捨離】
 • 斷捨離 [物品] — 加入待定區
 • 丟了 [物品] — 標記丟棄
-• 賣了 [物品] [金額] — 標記賣出並記入帳本
-• 斷捨離清單 — 查看待定區
+• 賣了 [物品] [金額] — 賣出並記帳
+• 斷捨離清單 — 查待定區
 • 斷捨離收入 — 查賣出總收入
 
-【AI 問答】
-• @機器人 [問題] — 問任何問題
+【其他】
+• 我是 [名字] — 登記身分
+• @機器人 [問題] — AI 問答
 
-目標：每週家事點數達 5 點 🎯""")
+目標：每週 5 點 🎯""")
         return True
     return False
 
