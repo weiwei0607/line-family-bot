@@ -208,6 +208,16 @@ def handle_ai_mention(reply_token: str, text: str):
     return False
 
 
+def handle_admin(reply_token: str, event: MessageEvent, text: str):
+    """管理指令（取群組 ID 等）"""
+    if text in ["群組id", "群組ID", "groupid", "群id"]:
+        source = event.source
+        gid = getattr(source, "group_id", None) or getattr(source, "room_id", None) or "不是群組訊息"
+        reply(reply_token, f"群組 ID：{gid}")
+        return True
+    return False
+
+
 def handle_help(reply_token: str, text: str):
     if text in ["說明", "幫助", "功能", "help", "指令"]:
         reply(reply_token, """🏠 家管助理使用說明
@@ -264,6 +274,7 @@ def handle_message(event: MessageEvent):
         member = _resolve_member(event.source.user_id)
 
     if (
+        handle_admin(reply_token, event, text) or
         handle_help(reply_token, text) or
         handle_chores(reply_token, member, text) or
         handle_points(reply_token, text) or
