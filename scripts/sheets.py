@@ -205,6 +205,36 @@ def reset_chore(chore_name: str):
 # 點數記錄 Tab: [日期, 成員, 任務, 點數, 時間]
 # ──────────────────────────────────────────────
 
+def cancel_last_record(member: str, chore_name: str = None) -> dict | None:
+    """取消某成員最近一筆記錄；指定 chore_name 則只取消那項家事"""
+    rows = _read("點數記錄", "A2:E500")
+    target_idx = None
+    for i in range(len(rows) - 1, -1, -1):
+        r = rows[i]
+        if len(r) < 4:
+            continue
+        if r[1] == member:
+            if chore_name is None or chore_name in r[2] or r[2] in chore_name:
+                target_idx = i
+                break
+    if target_idx is None:
+        return None
+    removed = rows[target_idx]
+    keep_rows = rows[:target_idx] + rows[target_idx + 1:]
+    svc = _get_service()
+    sid = _get_sheet_id()
+    svc.spreadsheets().values().clear(spreadsheetId=sid, range="點數記錄!A2:E500").execute()
+    if keep_rows:
+        svc.spreadsheets().values().update(
+            spreadsheetId=sid, range="點數記錄!A2",
+            valueInputOption="USER_ENTERED", body={"values": keep_rows},
+        ).execute()
+    return {
+        "name": removed[2] if len(removed) > 2 else "",
+        "points": float(removed[3]) if len(removed) > 3 else 0,
+    }
+
+
 def get_member_weekly_breakdown(member: str) -> list[dict]:
     """回傳本週某成員每項家事的累積點數"""
     rows = _read("點數記錄", "A2:D500")

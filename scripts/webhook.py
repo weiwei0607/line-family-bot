@@ -22,7 +22,7 @@ from sheets import (
     add_expense, get_expenses, get_member_weekly_breakdown,
     get_member_weekly_chore_points, WEEKLY_CAPS,
     add_declutter, get_declutter_list, complete_declutter,
-    add_income, get_declutter_income,
+    add_income, get_declutter_income, cancel_last_record,
 )
 
 app = Flask(__name__)
@@ -142,6 +142,22 @@ def handle_points(reply_token: str, member: str, text: str):
             status = "✅ 已達標" if total >= POINTS_THRESHOLD else f"⚠️ 距目標還差 {POINTS_THRESHOLD - total:.2f}".rstrip('0').rstrip('.') + " 點"
             lines.append(status)
             reply(reply_token, "\n".join(lines))
+        return True
+
+    # 取消記錄
+    m = re.match(r"^取消記錄\s*(.*)$", text)
+    if m or text in ["取消上筆", "取消記錄"]:
+        if not member:
+            reply(reply_token, "還不知道你是誰，先傳「我是＿＿」讓我記住你 😊")
+            return True
+        chore_name = m.group(1).strip() if m and m.group(1).strip() else None
+        result = cancel_last_record(member, chore_name)
+        if result:
+            p_str = f"{result['points']:.2f}".rstrip('0').rstrip('.')
+            reply(reply_token, f"✅ 已取消「{result['name']}」的 {p_str} 點記錄")
+        else:
+            tip = f"「{chore_name}」的" if chore_name else ""
+            reply(reply_token, f"找不到{tip}記錄，沒有東西可以取消")
         return True
 
     return False
@@ -308,6 +324,13 @@ def handle_admin(reply_token: str, event: MessageEvent, text: str):
     if m:
         name = m.group(1).strip()
         user_id = getattr(event.source, "user_id", "")
+        approved = get_members()
+        if name not in approved:
+            names_str = "、".join(approved) if approved else "（尚未設定成員）"
+            reply(reply_token, f"「{name}」不在成員名單裡喔！\n"
+                               f"目前成員：{names_str}\n"
+                               f"請用正確的家人稱呼 😊")
+            return True
         if user_id and name:
             bg(register_member, user_id, name)
             _member_cache[user_id] = name
