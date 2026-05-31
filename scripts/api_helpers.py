@@ -1,12 +1,13 @@
 """
-免費 API 小工具：天氣、空氣品質、人生建議
+API 小工具：天氣、空氣品質、人生建議、星座、食譜、營養、冷知識
 """
 
 import os
 import requests
 
-LAT = float(os.environ.get("LOCATION_LAT", "25.04"))   # 預設台北
+LAT = float(os.environ.get("LOCATION_LAT", "25.04"))
 LON = float(os.environ.get("LOCATION_LON", "121.53"))
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "")
 
 WMO = {
     0: "☀️ 晴天", 1: "🌤 大致晴", 2: "⛅️ 部分多雲", 3: "☁️ 陰天",
@@ -18,6 +19,14 @@ WMO = {
     95: "⛈ 雷雨", 96: "⛈ 雷雨夾冰雹", 99: "⛈ 雷雨夾冰雹",
 }
 
+SIGN_MAP = {
+    "牡羊": "aries", "金牛": "taurus", "雙子": "gemini", "巨蟹": "cancer",
+    "獅子": "leo", "處女": "virgo", "天秤": "libra", "天蠍": "scorpio",
+    "射手": "sagittarius", "摩羯": "capricorn", "水瓶": "aquarius", "雙魚": "pisces",
+}
+
+
+# ── 天氣 ──────────────────────────────────────
 
 def get_weather() -> dict:
     try:
@@ -85,9 +94,120 @@ def format_weather_block() -> str:
     return "\n".join(lines)
 
 
+# ── 人生建議 ──────────────────────────────────
+
 def get_advice() -> str:
     try:
         r = requests.get("https://api.adviceslip.com/advice", timeout=5)
         return r.json()["slip"]["advice"]
     except Exception:
         return ""
+
+
+# ── 星座運勢（aztro，免費無需 key）────────────
+
+def get_horoscope(sign_zh: str) -> dict | None:
+    sign_zh = sign_zh.replace("座", "").strip()
+    sign_en = SIGN_MAP.get(sign_zh)
+    if not sign_en:
+        return None
+    try:
+        r = requests.post(
+            f"https://aztro.sameerkumar.website/?sign={sign_en}&day=today",
+            timeout=10,
+        )
+        d = r.json()
+        return {
+            "sign": sign_zh + "座",
+            "description": d.get("description", ""),
+            "mood": d.get("mood", ""),
+            "color": d.get("color", ""),
+            "lucky_number": d.get("lucky_number", ""),
+            "lucky_time": d.get("lucky_time", ""),
+            "compatibility": d.get("compatibility", ""),
+        }
+    except Exception:
+        return None
+
+
+# ── 冷知識（uselessfacts，免費無需 key）────────
+
+def get_fun_fact() -> str:
+    try:
+        r = requests.get(
+            "https://uselessfacts.jsph.pl/api/v2/facts/random",
+            params={"language": "en"},
+            timeout=8,
+        )
+        return r.json().get("text", "")
+    except Exception:
+        return ""
+
+
+# ── 食譜搜尋（Spoonacular via RapidAPI）────────
+
+def search_recipes_by_ingredients(ingredients: str) -> list[dict]:
+    if not RAPIDAPI_KEY:
+        return []
+    try:
+        r = requests.get(
+            "https://spoonacular-recipe-food-nutrition-v1.p.rapidapi.com/recipes/findByIngredients",
+            headers={
+                "X-RapidAPI-Key": RAPIDAPI_KEY,
+                "X-RapidAPI-Host": "spoonacular-recipe-food-nutrition-v1.p.rapidapi.com",
+            },
+            params={"ingredients": ingredients, "number": 3, "ranking": 1},
+            timeout=10,
+        )
+        return r.json()
+    except Exception:
+        return []
+
+
+# ── 食物熱量（CalorieNinjas via RapidAPI）──────
+
+def get_nutrition(query: str) -> list[dict]:
+    if not RAPIDAPI_KEY:
+        return []
+    try:
+        r = requests.get(
+            "https://calorieninjas.p.rapidapi.com/v1/nutrition",
+            headers={
+                "X-RapidAPI-Key": RAPIDAPI_KEY,
+                "X-RapidAPI-Host": "calorieninjas.p.rapidapi.com",
+            },
+            params={"query": query},
+            timeout=10,
+        )
+        return r.json().get("items", [])
+    except Exception:
+        return []
+
+
+# ── 電影推薦（IMDB via RapidAPI）──────────────
+
+def get_movie_by_genre(genre: str) -> dict | None:
+    if not RAPIDAPI_KEY:
+        return None
+    try:
+        r = requests.get(
+            "https://imdb8.p.rapidapi.com/title/find",
+            headers={
+                "X-RapidAPI-Key": RAPIDAPI_KEY,
+                "X-RapidAPI-Host": "imdb8.p.rapidapi.com",
+            },
+            params={"q": genre},
+            timeout=10,
+        )
+        results = r.json().get("results", [])
+        movies = [x for x in results if x.get("titleType") == "movie"]
+        if not movies:
+            return None
+        m = movies[0]
+        return {
+            "title": m.get("title", ""),
+            "year": m.get("year", ""),
+            "image": m.get("image", {}).get("url", ""),
+        }
+    except Exception:
+        return None

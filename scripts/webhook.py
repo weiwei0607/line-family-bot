@@ -14,7 +14,11 @@ from linebot.v3.messaging import (
     ReplyMessageRequest, TextMessage,
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
-from api_helpers import format_weather_block, get_advice
+from api_helpers import (
+    format_weather_block, get_advice, get_horoscope, get_fun_fact,
+    search_recipes_by_ingredients, get_nutrition, get_movie_by_genre,
+    RAPIDAPI_KEY,
+)
 
 from sheets import (
     bg, get_members, get_chores, complete_chore, add_chore,
@@ -35,6 +39,8 @@ configuration = Configuration(access_token=_token)
 handler = WebhookHandler(_secret)
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 POINTS_THRESHOLD = int(os.environ.get("POINTS_THRESHOLD", "5"))
+
+_quiz_state: dict[str, dict] = {}  # group_id -> {question, answer}
 
 # ─── 工具函數 ─────────────────────────────────
 
@@ -336,12 +342,15 @@ def handle_declutter(reply_token: str, member: str, text: str) -> bool:
     return False
 
 
-def handle_fun(reply_token: str, text: str) -> bool:
-    """天氣、吃什麼、人生建議"""
+def handle_fun(reply_token: str, source, text: str) -> bool:
+    """天氣、吃什麼、星座、問答、食譜、熱量、電影、冷知識、人生建議"""
+
+    # 天氣
     if text in ["天氣", "今天天氣", "天氣如何", "外面天氣"]:
         reply(reply_token, "🌡 今日天氣\n\n" + format_weather_block())
         return True
 
+    # 今天吃什麼
     if text in ["今天吃什麼", "吃什麼", "晚餐吃什麼", "午餐吃什麼"]:
         suggestion = call_gemini(
             "隨機推薦一道台灣家常料理，給出菜名、簡單食材（3-5樣）和一句做法說明。格式：\n"
@@ -350,6 +359,139 @@ def handle_fun(reply_token: str, text: str) -> bool:
         reply(reply_token, suggestion)
         return True
 
+    # 星座運勢
+    m = re.match(r"^(牡羊|金牛|雙子|巨蟹|獅子|處女|天秤|天蠍|射手|摩羯|水瓶|雙魚)座?運勢?$", text)
+    if m or text in ["星座"]:
+        if text == "星座":
+            reply(reply_token, "請傳「[星座]運勢」\n例：天蠍座運勢、射手運勢")
+            return True
+        sign_zh = m.group(1)
+        data = get_horoscope(sign_zh)
+        if data:
+            desc = call_gemini(f"把這段英文星座運勢翻譯成繁體中文，簡潔2-3句：{data['description']}")
+            lines = [
+                f"✨ {data['sign']} 今日運勢\n",
+                desc,
+                f"\n心情：{data['mood']}　幸運色：{data['color']}",
+                f"幸運數字：{data['lucky_number']}　配對：{data['compatibility']}座",
+            ]
+            reply(reply_token, "\n".join(lines))
+        else:
+            reply(reply_token, "星座資料取得失敗，待會再試試")
+        return True
+
+    # 問答遊戲 — 出題
+    if text in ["出題", "來玩問答", "問答遊戲", "出一題"]:
+        group_id = getattr(source, "group_id", None) or getattr(source, "room_id", "default")
+        qa = call_gemini(
+            "出一道適合全家一起玩的中文知識問答題（生活常識、台灣文化、有趣冷知識皆可），格式固定：\n"
+            "問題：xxx\n答案：xxx\n只給這兩行，不要其他說明"
+        )
+        question, answer = "", ""
+        for line in qa.strip().splitlines():
+            if line.startswith("問題："):
+                question = line[3:].strip()
+            elif line.startswith("答案："):
+                answer = line[3:].strip()
+        if question and answer:
+            _quiz_state[group_id] = {"question": question, "answer": answer}
+            reply(reply_token, f"🧠 問答時間！\n\n{question}\n\n傳「答 你的答案」作答，傳「答案」看解答")
+        else:
+            reply(reply_token, "出題失敗，再試一次！")
+        return True
+
+    # 問答遊戲 — 作答
+    m_ans = re.match(r"^答\s+(.+)$", text)
+    if m_ans:
+        group_id = getattr(source, "group_id", None) or getattr(source, "room_id", "default")
+        if group_id not in _quiz_state:
+            reply(reply_token, "目前沒有進行中的題目，傳「出題」開始！")
+            return True
+        state = _quiz_state[group_id]
+        user_ans = m_ans.group(1).strip().lower()
+        correct = state["answer"].lower()
+        if correct in user_ans or user_ans in correct:
+            del _quiz_state[group_id]
+            reply(reply_token, f"🎉 答對了！答案是：{state['answer']}")
+        else:
+            reply(reply_token, f"❌ 不對喔，再想想！")
+        return True
+
+    # 問答遊戲 — 看答案
+    if text in ["答案", "我不知道", "放棄", "答案是什麼"]:
+        group_id = getattr(source, "group_id", None) or getattr(source, "room_id", "default")
+        if group_id in _quiz_state:
+            state = _quiz_state.pop(group_id)
+            reply(reply_token, f"答案是：{state['answer']} 💡")
+            return True
+
+    # 食譜搜尋（需要 RAPIDAPI_KEY）
+    m = re.match(r"^食譜\s+(.+)$", text)
+    if m:
+        if not RAPIDAPI_KEY:
+            reply(reply_token, "食譜搜尋需要設定 RAPIDAPI_KEY")
+            return True
+        ingredients = m.group(1).strip()
+        results = search_recipes_by_ingredients(ingredients)
+        if results:
+            lines = [f"🍳 含「{ingredients}」的食譜：\n"]
+            for r in results[:3]:
+                lines.append(f"• {r.get('title', '')}（缺：{len(r.get('missedIngredients', []))} 樣食材）")
+            reply(reply_token, "\n".join(lines))
+        else:
+            reply(reply_token, "找不到相關食譜，換個食材試試")
+        return True
+
+    # 熱量查詢（需要 RAPIDAPI_KEY）
+    m = re.match(r"^熱量\s+(.+)$", text)
+    if m:
+        if not RAPIDAPI_KEY:
+            reply(reply_token, "熱量查詢需要設定 RAPIDAPI_KEY")
+            return True
+        food = m.group(1).strip()
+        items = get_nutrition(food)
+        if items:
+            lines = [f"🔥 熱量查詢：{food}\n"]
+            for it in items[:3]:
+                lines.append(
+                    f"• {it.get('name', '')}（{it.get('serving_size_g', '')}g）：{round(it.get('calories', 0))} 卡"
+                    f"　蛋白質 {round(it.get('protein_g', 0))}g　脂肪 {round(it.get('fat_total_g', 0))}g"
+                )
+            reply(reply_token, "\n".join(lines))
+        else:
+            reply(reply_token, "查不到這個食物的熱量，試試英文名稱")
+        return True
+
+    # 電影推薦
+    if text in ["推薦電影", "今晚看什麼", "電影推薦"]:
+        movie = call_gemini(
+            "推薦一部適合全家一起看的電影，給出片名（中英文）、年份、一句推薦理由。格式：\n"
+            "🎬 [片名]\n年份：xxx\n推薦理由：xxx"
+        )
+        reply(reply_token, movie)
+        return True
+
+    m = re.match(r"^推薦電影\s+(.+)$", text)
+    if m:
+        genre = m.group(1).strip()
+        movie = call_gemini(
+            f"推薦一部{genre}類型的電影，給出片名（中英文）、年份、一句推薦理由。格式：\n"
+            "🎬 [片名]\n年份：xxx\n推薦理由：xxx"
+        )
+        reply(reply_token, movie)
+        return True
+
+    # 冷知識
+    if text in ["冷知識", "今日冷知識", "告訴我一件事"]:
+        fact_en = get_fun_fact()
+        if fact_en:
+            fact_zh = call_gemini(f"把這個冷知識翻成繁體中文，保持趣味性，只給翻譯結果：{fact_en}")
+            reply(reply_token, f"🤓 冷知識\n\n{fact_zh}")
+        else:
+            reply(reply_token, "今天沒有冷知識，改天再問")
+        return True
+
+    # 人生建議
     if text in ["給我建議", "人生建議", "今日建議", "金玉良言"]:
         advice_en = get_advice()
         if advice_en:
@@ -528,7 +670,14 @@ def handle_help(reply_token: str, text: str):
 【生活小工具】
 • 天氣 — 今日天氣 + 空氣品質
 • 今天吃什麼 — AI 推薦家常料理
+• [星座]運勢 — 例：天蠍座運勢
+• 出題 — 家庭問答遊戲（答 xxx 作答）
+• 食譜 [食材] — 依食材找食譜 *
+• 熱量 [食物] — 查食物卡路里 *
+• 推薦電影 [類型] — AI 推薦電影
+• 冷知識 — 隨機有趣知識
 • 給我建議 — 隨機人生建議
+（* 需啟用 RAPIDAPI_KEY）
 
 【其他】
 • 我是 [名字] — 登記身分
@@ -576,7 +725,7 @@ def handle_message(event: MessageEvent):
         handle_accounting(reply_token, member, text) or
         handle_fine(reply_token, member, text) or
         handle_declutter(reply_token, member, text) or
-        handle_fun(reply_token, text) or
+        handle_fun(reply_token, event.source, text) or
         handle_ai_mention(reply_token, text)
     ):
         return
