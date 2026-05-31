@@ -136,6 +136,9 @@ WEEKLY_CAPS: dict[str, float] = {
 # 家事別名對照（輸入 → 正式名稱）
 CHORE_ALIASES: dict[str, str] = {
     "倒水地下室": "地下室倒水",
+    "客房除濕機倒水": "客房倒水",
+    "倒水（客房）": "客房倒水",
+    "客房除濕": "客房倒水",
 }
 
 def get_member_weekly_chore_points(member: str, chore_name: str) -> float:

@@ -163,12 +163,13 @@ def handle_chores(reply_token: str, member: str, text: str):
             reply(reply_token, "\n".join(lines))
         return True
 
-    m = re.match(r"^新增家事\s+(.+?)(\s+(\d+)點?)?$", text)
+    m = re.match(r"^新增家事\s+(.+?)(\s+(\d+(?:\.\d+)?)點?)?$", text)
     if m:
         name = m.group(1).strip()
-        pts = int(m.group(3)) if m.group(3) else 1
+        pts = float(m.group(3)) if m.group(3) else 1
         bg(add_chore, name, pts)
-        reply(reply_token, f"✅ 新增家事「{name}」（{pts}點），大家加油！")
+        pts_str = f"{pts:.2f}".rstrip('0').rstrip('.')
+        reply(reply_token, f"✅ 新增家事「{name}」（{pts_str}點），大家加油！")
         return True
 
     return False
