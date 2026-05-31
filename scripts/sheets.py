@@ -412,6 +412,29 @@ def get_declutter_list(only_pending=True) -> list[dict]:
         result.append(item)
     return result
 
+def get_weekly_declutter_stats() -> dict[str, dict]:
+    """本週斷捨離統計：每人完成件數 + 賣出金額"""
+    rows = _read("斷捨離", "A2:H200")
+    week_start = _week_start()
+    stats: dict[str, dict] = {}
+    for r in rows:
+        if len(r) < 7:
+            continue
+        status = r[3].strip() if len(r) > 3 else ""
+        done_by = r[6].strip() if len(r) > 6 else ""
+        done_at = r[7].strip() if len(r) > 7 else ""
+        if status in ("丟棄", "賣出") and done_by and done_at >= week_start:
+            if done_by not in stats:
+                stats[done_by] = {"count": 0, "income": 0}
+            stats[done_by]["count"] += 1
+            if status == "賣出":
+                try:
+                    stats[done_by]["income"] += int(str(r[5]).strip()) if len(r) > 5 and r[5] else 0
+                except (ValueError, TypeError):
+                    pass
+    return stats
+
+
 def complete_declutter(item_name: str, method: str, member: str, amount: int = 0) -> dict | None:
     items = get_declutter_list(only_pending=True)
     matched = next(

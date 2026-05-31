@@ -5,7 +5,7 @@
 
 import os
 import requests
-from sheets import get_members, get_weekly_points, get_declutter_list
+from sheets import get_members, get_weekly_points, get_declutter_list, get_weekly_declutter_stats
 
 GROUP_ID = os.environ["LINE_GROUP_ID"]
 CHANNEL_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
@@ -45,15 +45,25 @@ def main():
     lines.append(f"\n（每週目標：{POINTS_THRESHOLD} 點）")
     lines.append("新的一週從明天開始，大家繼續加油 💪")
 
+    # 斷捨離週賽
+    declutter_stats = get_weekly_declutter_stats()
+    if declutter_stats:
+        sorted_d = sorted(declutter_stats.items(), key=lambda x: (x[1]["count"], x[1]["income"]), reverse=True)
+        lines.append("\n\n🗑️ 本週斷捨離競賽：")
+        d_medals = ["🥇", "🥈", "🥉"]
+        for i, (m, s) in enumerate(sorted_d):
+            medal = d_medals[i] if i < 3 else "  "
+            income_str = f"，賣出 {s['income']} 元" if s["income"] > 0 else ""
+            lines.append(f"{medal} {m}：清了 {s['count']} 項{income_str}")
+
     # 斷捨離待定提醒
     pending = get_declutter_list(only_pending=True)
     if pending:
-        lines.append(f"\n\n🗂️ 斷捨離待定區還有 {len(pending)} 項：")
+        lines.append(f"\n🗂️ 待定區還有 {len(pending)} 項，趁週末清一清！")
         for it in pending[:5]:
             lines.append(f"  • {it['name']}")
         if len(pending) > 5:
             lines.append(f"  ...還有 {len(pending)-5} 項")
-        lines.append("趁週末清一清吧！")
 
     push("\n".join(lines))
     print("Weekly summary sent.")
