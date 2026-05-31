@@ -306,6 +306,74 @@ def complete_shopping(item_name: str, member: str) -> bool:
 def add_expense(amount: int, category: str, description: str, member: str):
     _append("記帳", [_today_str(), amount, category, description, member, _now_str()])
 
+def add_income(amount: int, description: str, member: str):
+    """斷捨離賣出收入，記入記帳 tab，分類為斷捨離收入"""
+    _append("記帳", [_today_str(), amount, "斷捨離收入", description, member, _now_str()])
+
+def get_declutter_income() -> list[dict]:
+    """查所有斷捨離收入記錄"""
+    rows = _read("記帳", "A2:F500")
+    result = []
+    for r in rows:
+        if not r or len(r) < 4:
+            continue
+        if len(r) > 2 and r[2] == "斷捨離收入":
+            result.append({
+                "date": r[0],
+                "amount": int(r[1]) if str(r[1]).strip().isdigit() else 0,
+                "desc": r[3] if len(r) > 3 else "",
+                "by": r[4] if len(r) > 4 else "",
+            })
+    return result
+
+# ──────────────────────────────────────────────
+# 斷捨離 Tab: [物品, 加入者, 加入時間, 狀態, 處理方式, 金額, 處理者, 處理時間]
+# ──────────────────────────────────────────────
+
+def add_declutter(item: str, member: str):
+    _append("斷捨離", [item, member, _now_str(), "待定", "", "", "", ""])
+
+def get_declutter_list(only_pending=True) -> list[dict]:
+    rows = _read("斷捨離", "A2:H200")
+    result = []
+    for i, r in enumerate(rows):
+        if not r or not r[0].strip():
+            continue
+        item = {
+            "row": i + 2,
+            "name": r[0].strip(),
+            "added_by": r[1].strip() if len(r) > 1 else "",
+            "added_at": r[2].strip() if len(r) > 2 else "",
+            "status": r[3].strip() if len(r) > 3 else "待定",
+            "method": r[4].strip() if len(r) > 4 else "",
+            "amount": r[5].strip() if len(r) > 5 else "",
+            "done_by": r[6].strip() if len(r) > 6 else "",
+            "done_at": r[7].strip() if len(r) > 7 else "",
+        }
+        if only_pending and item["status"] != "待定":
+            continue
+        result.append(item)
+    return result
+
+def complete_declutter(item_name: str, method: str, member: str, amount: int = 0) -> dict | None:
+    items = get_declutter_list(only_pending=True)
+    matched = next(
+        (it for it in items if item_name in it["name"] or it["name"] in item_name),
+        None,
+    )
+    if not matched:
+        return None
+    svc = _get_service()
+    svc.spreadsheets().values().update(
+        spreadsheetId=_get_sheet_id(),
+        range=f"斷捨離!D{matched['row']}:H{matched['row']}",
+        valueInputOption="USER_ENTERED",
+        body={"values": [[method, amount if amount else "", member, _now_str(), ""]]},
+    ).execute()
+    matched["method"] = method
+    matched["amount"] = amount
+    return matched
+
 def get_expenses(days: int = 7) -> list[dict]:
     rows = _read("記帳", "A2:F500")
     cutoff = (datetime.now(TW_TZ) - timedelta(days=days)).strftime("%Y-%m-%d")

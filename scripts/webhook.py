@@ -21,6 +21,8 @@ from sheets import (
     batch_log_points, get_shopping_list, add_shopping, complete_shopping,
     add_expense, get_expenses, get_member_weekly_breakdown,
     get_member_weekly_chore_points, WEEKLY_CAPS,
+    add_declutter, get_declutter_list, complete_declutter,
+    add_income, get_declutter_income,
 )
 
 app = Flask(__name__)
@@ -211,6 +213,76 @@ def handle_accounting(reply_token: str, member: str, text: str):
     return False
 
 
+def handle_declutter(reply_token: str, member: str, text: str) -> bool:
+    """斷捨離指令"""
+    # 加入待定區
+    m = re.match(r"^斷捨離\s+(.+)", text)
+    if m and text not in ["斷捨離清單", "斷捨離收入"]:
+        item = m.group(1).strip()
+        bg(add_declutter, item, member or "")
+        reply(reply_token, f"🗂️ 「{item}」已加入待定區\n確定要處理時傳「丟了 {item}」或「賣了 {item} 金額」")
+        return True
+
+    # 查待定清單
+    if text == "斷捨離清單":
+        items = get_declutter_list(only_pending=True)
+        if not items:
+            reply(reply_token, "🎉 待定區是空的，家裡很清爽！")
+        else:
+            lines = [f"🗂️ 斷捨離待定區（{len(items)} 項）：\n"]
+            for it in items:
+                lines.append(f"• {it['name']}（{it['added_by']} 加的）")
+            lines.append("\n傳「丟了 物品名」或「賣了 物品名 金額」來處理")
+            reply(reply_token, "\n".join(lines))
+        return True
+
+    # 丟棄
+    m = re.match(r"^丟了\s+(.+)", text)
+    if m:
+        item = m.group(1).strip()
+        result = complete_declutter(item, "丟棄", member or "")
+        if result:
+            reply(reply_token, f"🗑️ 「{item}」已丟棄！斷捨離成功 ✨")
+        else:
+            reply(reply_token, f"找不到「{item}」在待定區，先傳「斷捨離 {item}」加進去")
+        return True
+
+    # 賣出（帶金額）
+    m = re.match(r"^賣了\s+(.+?)\s+(\d+)$", text)
+    if m:
+        item = m.group(1).strip()
+        amount = int(m.group(2))
+        result = complete_declutter(item, "賣出", member or "", amount)
+        if result:
+            bg(add_income, amount, f"賣掉：{item}", member or "")
+            reply(reply_token, f"💰 「{item}」賣出 {amount} 元！\n已自動記入家庭帳本（斷捨離收入）✨")
+        else:
+            reply(reply_token, f"找不到「{item}」在待定區，先傳「斷捨離 {item}」加進去")
+        return True
+
+    # 賣出（沒帶金額）
+    m = re.match(r"^賣了\s+(.+)", text)
+    if m:
+        item = m.group(1).strip()
+        reply(reply_token, f"「{item}」賣了多少錢？請傳完整格式：\n「賣了 {item} 金額」")
+        return True
+
+    # 查斷捨離收入
+    if text == "斷捨離收入":
+        records = get_declutter_income()
+        if not records:
+            reply(reply_token, "目前還沒有斷捨離收入記錄")
+        else:
+            total = sum(r["amount"] for r in records)
+            lines = [f"💰 斷捨離收入（共 {total} 元）：\n"]
+            for r in records[-10:]:
+                lines.append(f"• {r['date']} {r['desc']} {r['amount']}元（{r['by']}）")
+            reply(reply_token, "\n".join(lines))
+        return True
+
+    return False
+
+
 def handle_ai_mention(reply_token: str, text: str):
     """@機器人 問問題"""
     m = re.match(r"^@?(?:機器人|家管|bot|助理)\s+(.+)", text, re.IGNORECASE)
@@ -354,6 +426,13 @@ def handle_help(reply_token: str, text: str):
 • 記帳 [金額] [說明] — 記錄支出
 • 今日帳 / 查帳 — 查今日/7天支出
 
+【斷捨離】
+• 斷捨離 [物品] — 加入待定區
+• 丟了 [物品] — 標記丟棄
+• 賣了 [物品] [金額] — 標記賣出並記入帳本
+• 斷捨離清單 — 查看待定區
+• 斷捨離收入 — 查賣出總收入
+
 【AI 問答】
 • @機器人 [問題] — 問任何問題
 
@@ -397,6 +476,7 @@ def handle_message(event: MessageEvent):
         handle_points(reply_token, member, text) or
         handle_shopping(reply_token, member, text) or
         handle_accounting(reply_token, member, text) or
+        handle_declutter(reply_token, member, text) or
         handle_ai_mention(reply_token, text)
     ):
         return
