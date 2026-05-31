@@ -14,6 +14,7 @@ from linebot.v3.messaging import (
     ReplyMessageRequest, TextMessage,
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
+from api_helpers import format_weather_block, get_advice
 
 from sheets import (
     bg, get_members, get_chores, complete_chore, add_chore,
@@ -335,6 +336,32 @@ def handle_declutter(reply_token: str, member: str, text: str) -> bool:
     return False
 
 
+def handle_fun(reply_token: str, text: str) -> bool:
+    """天氣、吃什麼、人生建議"""
+    if text in ["天氣", "今天天氣", "天氣如何", "外面天氣"]:
+        reply(reply_token, "🌡 今日天氣\n\n" + format_weather_block())
+        return True
+
+    if text in ["今天吃什麼", "吃什麼", "晚餐吃什麼", "午餐吃什麼"]:
+        suggestion = call_gemini(
+            "隨機推薦一道台灣家常料理，給出菜名、簡單食材（3-5樣）和一句做法說明。格式：\n"
+            "🍽 [菜名]\n食材：xxx\n做法：xxx"
+        )
+        reply(reply_token, suggestion)
+        return True
+
+    if text in ["給我建議", "人生建議", "今日建議", "金玉良言"]:
+        advice_en = get_advice()
+        if advice_en:
+            translated = call_gemini(f"把這句英文建議翻譯成繁體中文，只給翻譯結果：{advice_en}")
+            reply(reply_token, f"💡 {translated}\n\n（{advice_en}）")
+        else:
+            reply(reply_token, "今天沒有建議，就靠自己吧！")
+        return True
+
+    return False
+
+
 def handle_ai_mention(reply_token: str, text: str):
     """@機器人 問問題"""
     m = re.match(r"^@?(?:機器人|家管|bot|助理|小花)\s+(.+)", text, re.IGNORECASE)
@@ -498,6 +525,11 @@ def handle_help(reply_token: str, text: str):
 • 斷捨離清單 — 查待定區
 • 斷捨離收入 — 查賣出總收入
 
+【生活小工具】
+• 天氣 — 今日天氣 + 空氣品質
+• 今天吃什麼 — AI 推薦家常料理
+• 給我建議 — 隨機人生建議
+
 【其他】
 • 我是 [名字] — 登記身分
 • 助理 [問題] / 小花 [問題] — AI 問答
@@ -544,6 +576,7 @@ def handle_message(event: MessageEvent):
         handle_accounting(reply_token, member, text) or
         handle_fine(reply_token, member, text) or
         handle_declutter(reply_token, member, text) or
+        handle_fun(reply_token, text) or
         handle_ai_mention(reply_token, text)
     ):
         return

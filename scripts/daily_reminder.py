@@ -4,8 +4,11 @@
 """
 
 import os
+import sys
+sys.path.insert(0, os.path.dirname(__file__))
 import requests
 from sheets import get_members, get_chores, get_weekly_points
+from api_helpers import format_weather_block
 
 GROUP_ID = os.environ["LINE_GROUP_ID"]
 CHANNEL_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
@@ -36,6 +39,8 @@ def main():
     low_pts = [m for m in members if pts.get(m, 0) < POINTS_THRESHOLD]
 
     lines = ["☀️ 早安！家管助理日報\n"]
+    lines.append(format_weather_block())
+    lines.append("")
 
     # 待完成家事
     if chores:
