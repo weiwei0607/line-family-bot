@@ -14,6 +14,7 @@ WEATHER_CITY = os.environ.get("WEATHER_CITY", "Taipei")
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "")
 APININJAS_KEY = os.environ.get("APININJAS_KEY", "")
 NASA_KEY = os.environ.get("NASA_API_KEY", "")
+TMDB_KEY = os.environ.get("TMDB_API_KEY", "")
 
 QUOTA_MSG = "❌ 今日 API 額度用完了，明天再試試！"
 
@@ -378,9 +379,11 @@ def get_gold_price() -> dict | None:
         return None
 
 
-# ── 電影（IMDb Top 100）──────────────────────────
+# ── 電影（TMDB 優先，fallback IMDb Top 100）──────
 
 def get_movie(title: str = "") -> dict | None:
+    if TMDB_KEY:
+        return get_tmdb_movie(title)
     if not RAPIDAPI_KEY:
         return None
     try:
@@ -401,9 +404,50 @@ def get_movie(title: str = "") -> dict | None:
         return None
 
 
-# ── 串流平台（Streaming Availability）───────────
+def get_tmdb_movie(title: str = "") -> dict | None:
+    if not TMDB_KEY:
+        return None
+    try:
+        if title:
+            r = requests.get(
+                "https://api.themoviedb.org/3/search/movie",
+                params={"api_key": TMDB_KEY, "query": title, "language": "zh-TW", "region": "TW"},
+                timeout=10,
+            )
+            if _check_quota(r): return {"_quota": True}
+            results = r.json().get("results", [])
+            movie = results[0] if results else None
+        else:
+            r = requests.get(
+                "https://api.themoviedb.org/3/movie/popular",
+                params={"api_key": TMDB_KEY, "language": "zh-TW", "region": "TW"},
+                timeout=10,
+            )
+            if _check_quota(r): return {"_quota": True}
+            results = r.json().get("results", [])
+            movie = random.choice(results[:20]) if results else None
+        if not movie:
+            return None
+        poster = f"https://image.tmdb.org/t/p/w500{movie['poster_path']}" if movie.get("poster_path") else None
+        return {
+            "id": movie.get("id"),
+            "title": movie.get("title", ""),
+            "original_title": movie.get("original_title", ""),
+            "overview": (movie.get("overview") or "")[:300],
+            "rating": round(movie.get("vote_average", 0), 1),
+            "year": (movie.get("release_date") or "")[:4],
+            "poster_url": poster,
+            "_tmdb": True,
+        }
+    except Exception:
+        return None
+
+
+# ── 串流平台（TMDB watch/providers 優先）─────────
 
 def get_streaming(title: str) -> list:
+    if TMDB_KEY:
+        return get_tmdb_streaming_by_title(title)
     if not RAPIDAPI_KEY:
         return []
     try:
@@ -419,6 +463,42 @@ def get_streaming(title: str) -> list:
             opts = results[0].get("streamingOptions", {}).get("tw", [])
             return [{"service": o.get("service", {}).get("name", ""), "link": o.get("link", "")} for o in opts[:5]]
         return []
+    except Exception:
+        return []
+
+
+def get_tmdb_streaming_by_title(title: str) -> list:
+    if not TMDB_KEY:
+        return []
+    try:
+        # 先搜尋電影 ID
+        r = requests.get(
+            "https://api.themoviedb.org/3/search/movie",
+            params={"api_key": TMDB_KEY, "query": title, "language": "zh-TW"},
+            timeout=10,
+        )
+        if _check_quota(r): return [{"_quota": True}]
+        results = r.json().get("results", [])
+        if not results:
+            return []
+        movie_id = results[0]["id"]
+        # 查台灣串流平台
+        r2 = requests.get(
+            f"https://api.themoviedb.org/3/movie/{movie_id}/watch/providers",
+            params={"api_key": TMDB_KEY},
+            timeout=10,
+        )
+        if _check_quota(r2): return [{"_quota": True}]
+        tw = r2.json().get("results", {}).get("TW", {})
+        providers = []
+        seen = set()
+        for ptype in ["flatrate", "free", "rent", "buy"]:
+            for p in tw.get(ptype, []):
+                name = p.get("provider_name", "")
+                if name and name not in seen:
+                    providers.append({"service": name, "type": ptype})
+                    seen.add(name)
+        return providers[:8]
     except Exception:
         return []
 

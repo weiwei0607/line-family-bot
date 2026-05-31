@@ -6,10 +6,10 @@ Daily Dose API — 為 Daily Dose App 提供內容 API
 from flask import Blueprint, jsonify, request
 from api_helpers import (
     get_motivation_quote, get_joke, get_fun_fact, get_astronomy_fact,
-    get_exercise, get_anime_quote, get_horoscope, get_movie,
+    get_exercise, get_anime_quote, get_horoscope, get_movie, get_tmdb_movie,
     get_random_activity, get_cocktail, get_meal_random, get_open_trivia,
     get_advice, get_movie_quote, get_chuck_norris, get_number_fact,
-    get_trivia, translate_text, SIGN_MAP,
+    get_trivia, get_nasa_apod, translate_text, SIGN_MAP,
 )
 
 dose_bp = Blueprint("dose", __name__, url_prefix="/dose")
@@ -70,8 +70,13 @@ def dose_horoscope(sign: str):
 
 @dose_bp.route("/movie", methods=["GET"])
 def dose_movie():
-    m = get_movie()
+    m = get_tmdb_movie() or get_movie()
     return _json(m)
+
+
+@dose_bp.route("/apod", methods=["GET"])
+def dose_apod():
+    return _json(get_nasa_apod())
 
 
 @dose_bp.route("/activity", methods=["GET"])

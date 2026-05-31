@@ -24,7 +24,7 @@ from api_helpers import (
     get_astronomy_fact, get_calories_burned,
     get_jisho, get_kanji_info, get_random_jlpt_word,
     get_spanish_dict, get_meal_random, get_open_trivia, get_number_fact,
-    get_nasa_apod, translate_text, JLPT_N5_KANJI, QUOTA_MSG, RAPIDAPI_KEY,
+    get_nasa_apod, translate_text, JLPT_N5_KANJI, QUOTA_MSG, TMDB_KEY, RAPIDAPI_KEY,
 )
 
 from sheets import (
@@ -108,6 +108,30 @@ def _q(val, reply_token: str) -> bool:
         reply(reply_token, QUOTA_MSG)
         return True
     return False
+
+
+def _send_movie(reply_token: str, movie: dict):
+    """發送電影資訊，TMDB 版有海報圖片。"""
+    if movie.get("_tmdb"):
+        title = movie.get("title", "")
+        orig = movie.get("original_title", "")
+        year = movie.get("year", "")
+        rating = movie.get("rating", "")
+        overview = movie.get("overview", "") or ""
+        caption = (f"🎬 {title}"
+                   + (f"（{orig}）" if orig and orig != title else "")
+                   + (f"  {year}\n" if year else "\n")
+                   + f"⭐ {rating} 分\n\n"
+                   + overview[:200])
+        poster = movie.get("poster_url")
+        if poster:
+            reply_image_with_text(reply_token, poster, caption)
+        else:
+            reply(reply_token, caption)
+    else:
+        reply(reply_token, f"🎬 {movie.get('title', '')}（{movie.get('year', '')}）\n\n"
+                           f"⭐ {movie.get('rating', '')}　排名第 {movie.get('rank', '')} 名\n\n"
+                           f"{movie.get('description', '')[:150]}")
 
 
 def call_gemini(prompt: str) -> str:
@@ -598,10 +622,9 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
     # ── 電影 ──
     if text in ["推薦電影", "今晚看什麼", "電影推薦", "看電影"]:
         movie = get_movie()
+        if _q(movie, reply_token): return True
         if movie:
-            reply(reply_token, f"🎬 {movie.get('title', '')}（{movie.get('year', '')}）\n\n"
-                               f"⭐ {movie.get('rating', '')}　排名第 {movie.get('rank', '')} 名\n\n"
-                               f"{movie.get('description', '')[:150]}")
+            _send_movie(reply_token, movie)
         else:
             reply(reply_token, call_gemini("推薦一部適合全家看的電影，給出片名、年份、一句理由"))
         return True
@@ -610,12 +633,11 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
     if m:
         title = m.group(1).strip()
         movie = get_movie(title)
+        if _q(movie, reply_token): return True
         if movie:
-            reply(reply_token, f"🎬 {movie.get('title', '')}（{movie.get('year', '')}）\n\n"
-                               f"⭐ {movie.get('rating', '')}　排名第 {movie.get('rank', '')} 名\n\n"
-                               f"{movie.get('description', '')[:150]}")
+            _send_movie(reply_token, movie)
         else:
-            reply(reply_token, f"找不到「{title}」，試試英文片名")
+            reply(reply_token, f"找不到「{title}」，試試其他關鍵字")
         return True
 
     # ── 哪裡看 ──
@@ -625,12 +647,14 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
         opts = get_streaming(title)
         if _q(opts, reply_token): return True
         if opts:
-            lines = [f"📺 「{title}」可在以下平台觀看：\n"]
+            type_zh = {"flatrate": "訂閱", "free": "免費", "rent": "租借", "buy": "購買"}
+            lines = [f"📺 「{title}」台灣可觀看平台：\n"]
             for o in opts:
-                lines.append(f"• {o['service']}")
+                t = type_zh.get(o.get("type", ""), "")
+                lines.append(f"• {o['service']}" + (f"（{t}）" if t else ""))
             reply(reply_token, "\n".join(lines))
         else:
-            reply(reply_token, f"找不到「{title}」的串流資訊（目前只查台灣地區）")
+            reply(reply_token, f"找不到「{title}」在台灣的串流資訊")
         return True
 
     # ── BMI ──
