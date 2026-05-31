@@ -18,7 +18,8 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from sheets import (
     bg, get_members, get_chores, complete_chore, add_chore,
     get_weekly_points, format_weekly_summary, register_member,
-    get_shopping_list, add_shopping, complete_shopping, add_expense, get_expenses,
+    batch_log_points, get_shopping_list, add_shopping, complete_shopping,
+    add_expense, get_expenses,
 )
 
 app = Flask(__name__)
@@ -237,6 +238,44 @@ def handle_admin(reply_token: str, event: MessageEvent, text: str):
     return False
 
 
+def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
+    """批量登錄格式：多行，每行 家事名稱+數字"""
+    lines = [l.strip() for l in text.strip().splitlines()]
+    if len(lines) < 2:
+        return False
+
+    chore_pattern = re.compile(r'^(.+?)(\d+\.?\d*)$')
+    chores: list[tuple[str, float]] = []
+
+    for line in lines:
+        # 跳過日期行、「完成」、空行
+        if not line or line in ["完成", "完成了", "今日", "記帳"]:
+            continue
+        if re.match(r'^\d+[/／]\d+', line):
+            continue
+        m = chore_pattern.match(line)
+        if m:
+            name = m.group(1).strip().rstrip('＋+').strip() or m.group(1).strip()
+            # 保留完整名稱（包含＋）
+            name = m.group(1).strip()
+            pts = float(m.group(2))
+            chores.append((name, pts))
+
+    if len(chores) < 2:
+        return False
+
+    who = member or "不知道誰"
+    batch_log_points(who, chores)
+
+    total = sum(p for _, p in chores)
+    total_str = f"{total:.2f}".rstrip('0').rstrip('.')
+    lines_out = [f"✅ {name} +{f'{pts:.2f}'.rstrip('0').rstrip('.')}" for name, pts in chores]
+    summary = format_weekly_summary()
+    reply(reply_token,
+          "\n".join(lines_out) + f"\n\n共 +{total_str} 點 🎉\n\n{summary}")
+    return True
+
+
 def handle_help(reply_token: str, text: str):
     if text in ["說明", "幫助", "功能", "help", "指令"]:
         reply(reply_token, """🏠 家管助理使用說明
@@ -298,6 +337,7 @@ def handle_message(event: MessageEvent):
 
     if (
         handle_admin(reply_token, event, text) or
+        handle_batch_log(reply_token, member, text) or
         handle_help(reply_token, text) or
         handle_chores(reply_token, member, text) or
         handle_points(reply_token, text) or

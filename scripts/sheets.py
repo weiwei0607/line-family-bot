@@ -171,8 +171,21 @@ def complete_chore(chore_name: str, member: str) -> dict | None:
     matched["capped"] = False
     return matched
 
-def add_chore(name: str, points: int = 1, category: str = "一般"):
+def add_chore(name: str, points: float = 1, category: str = "一般"):
     _append("家事清單", [name, points, category, "待完成", "", ""])
+
+def batch_log_points(member: str, chores: list[tuple[str, float]]):
+    """批量記點，一次寫入所有家事"""
+    today = _today_str()
+    now = _now_str()
+    rows = [[today, member, name, pts, now] for name, pts in chores]
+    svc = _get_service()
+    svc.spreadsheets().values().append(
+        spreadsheetId=_get_sheet_id(),
+        range="點數記錄!A1",
+        valueInputOption="USER_ENTERED",
+        body={"values": rows},
+    ).execute()
 
 def reset_chore(chore_name: str):
     """重置家事為待完成（每日/每週循環用）"""
