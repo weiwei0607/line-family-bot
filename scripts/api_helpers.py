@@ -812,51 +812,59 @@ def get_number_fact() -> str:
         return ""
 
 
-# ── 翻譯（使用 Gemini 免費高品質翻譯）─────────────
+# ── 翻譯（MyMemory 免費優先，失敗再用 Gemini）──────
+
+_LANG_MAP = {
+    "zh-TW": "zh-TW", "zh-CN": "zh-CN", "zh": "zh-TW",
+    "ja": "ja-JP", "es": "es-ES", "en": "en-US",
+    "ko": "ko-KR", "fr": "fr-FR", "de": "de-DE",
+    "th": "th-TH", "vi": "vi-VN", "id": "id-ID",
+}
+
+_LANG_NAME = {
+    "zh-TW": "繁體中文", "zh-CN": "簡體中文", "en": "英文",
+    "ja": "日文", "ko": "韓文", "es": "西班牙文", "fr": "法文",
+    "de": "德文", "th": "泰文", "vi": "越南文", "id": "印尼文",
+}
+
 
 def translate_text(text: str, target_lang: str = "zh-TW", source_lang: str = "auto") -> str:
-    """翻譯文字。target_lang: zh-TW, en, ja, ko, es, fr, de 等"""
+    """翻譯文字。MyMemory（免費）優先，失敗再用 Gemini。"""
+    if not text:
+        return text
+
+    tgt = _LANG_MAP.get(target_lang, target_lang)
+    src = "en" if source_lang == "auto" else source_lang
+
+    # 1. MyMemory（完全免費，每天約 5000 次）
+    try:
+        r = requests.get(
+            "https://api.mymemory.translated.net/get",
+            params={"q": text[:500], "langpair": f"{src}|{tgt}"},
+            timeout=8,
+        )
+        result = r.json().get("responseData", {}).get("translatedText", "")
+        if result and result not in ("NO QUERY SPECIFIED", text) and not result.upper().startswith("PLEASE"):
+            return result
+    except Exception:
+        pass
+
+    # 2. Gemini fallback
     try:
         gemini_key = os.environ.get("GEMINI_API_KEY", "")
         if not gemini_key:
-            return "（需要設定 GEMINI_API_KEY）"
-        lang_name = {
-            "zh-TW": "繁體中文", "zh-CN": "簡體中文", "en": "英文",
-            "ja": "日文", "ko": "韓文", "es": "西班牙文", "fr": "法文",
-            "de": "德文", "th": "泰文", "vi": "越南文", "id": "印尼文",
-        }.get(target_lang, target_lang)
-        prompt = f"把以下文字翻譯成{lang_name}，只給翻譯結果，不要解釋：\n\n{text}"
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/"
-            f"models/gemini-2.5-flash:generateContent?key={gemini_key}"
-        )
+            return text
+        lang_name = _LANG_NAME.get(target_lang, target_lang)
         resp = requests.post(
-            url,
-            json={"contents": [{"parts": [{"text": prompt}]}]},
+            "https://generativelanguage.googleapis.com/v1beta/"
+            f"models/gemini-2.5-flash:generateContent?key={gemini_key}",
+            json={"contents": [{"parts": [{"text": f"把以下文字翻譯成{lang_name}，只給翻譯結果，不要解釋：\n\n{text}"}]}]},
             timeout=15,
         )
         return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
         return f"翻譯失敗：{e}"
 
-
-# ── 翻譯（MyMemory，免費無需 key）────────────────
-
-def translate_text(text: str, target: str = "zh-TW") -> str:
-    if not text:
-        return text
-    lang_map = {"zh-TW": "zh-TW", "zh": "zh-TW", "ja": "ja-JP", "es": "es-ES", "en": "en-US"}
-    tgt = lang_map.get(target, target)
-    try:
-        r = requests.get(
-            "https://api.mymemory.translated.net/get",
-            params={"q": text[:300], "langpair": f"en|{tgt}"},
-            timeout=8,
-        )
-        result = r.json().get("responseData", {}).get("translatedText", "")
-        return result if result and result != "NO QUERY SPECIFIED" else text
-    except Exception:
-        return text
 
 
 # ── NASA APOD（每日天文圖片）──────────────────────
@@ -887,4 +895,539 @@ def get_nasa_apod() -> dict | None:
 # ── 電影（IMDB，fallback）────────────────────────
 
 def get_movie_by_genre(genre: str) -> dict | None:
+    return None
+
+# ═══════════════════════════════════════════════
+# 新增：輪班機制 + TTS + 笑話輪班 + 星座輪班 + 新聞 + Shazam
+# ═══════════════════════════════════════════════
+
+import base64
+import io
+import time
+from typing import Callable
+
+# ── 輪班工具：固定主 API，失敗自動 fallback ───────
+
+def _fallback_call(*callables: Callable) -> any:
+    """依序嘗試，第一個成功就回傳，全掛回傳 None"""
+    for fn in callables:
+        try:
+            result = fn()
+            if result and (not isinstance(result, str) or result.strip()):
+                return result
+            if result and isinstance(result, dict) and result.get("error"):
+                continue
+            if result and isinstance(result, bytes) and len(result) > 100:
+                return result
+            if result:
+                return result
+        except Exception:
+            continue
+    return None
+
+
+# ── TTS（5 個輪班）────────────────────────────────
+# 回傳 (audio_bytes, mime_type) 或 None
+
+_TTS_CONFIGS = [
+    # 1. Open AI Text to Speech — JSON body, 回傳 binary mp3
+    {
+        "host": "open-ai-text-to-speech1.p.rapidapi.com",
+        "endpoint": "/",
+        "headers": {"Content-Type": "application/json"},
+        "body_fn": lambda text, lang: {"model": "tts-1", "input": text, "voice": "alloy"},
+    },
+    # 2. Google Neural TTS — form-urlencoded, 回傳 binary mp3
+    {
+        "host": "text-to-speech-neural-google.p.rapidapi.com",
+        "endpoint": "/",
+        "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+        "body_fn": lambda text, lang: {"msg": text, "lang": "Salli", "source": "ttsmp3"},
+        "data": True,
+    },
+    # 3. Emotional TTS — JSON body, 回傳 binary ogg
+    {
+        "host": "emotional-text-to-speech.p.rapidapi.com",
+        "endpoint": "/synth",
+        "headers": {"Content-Type": "application/json"},
+        "body_fn": lambda text, lang: {
+            "format": "ogg",
+            "data": [{
+                "type": "text", "lang": lang.split("-")[0] if "-" in lang else lang,
+                "speaker": "Elias",
+                "data": [{"text": text, "emotion": [9], "pauseAfter": 300, "pauseBefore": 300}]
+            }]
+        },
+    },
+    # 4. JoJ Text to Speech
+    {
+        "host": "joj-text-to-speech.p.rapidapi.com",
+        "endpoint": "/",
+        "headers": {"Content-Type": "application/json"},
+        "body_fn": lambda text, lang: {
+            "input": {"text": text},
+            "voice": {"languageCode": "zh-TW" if lang == "zh-TW" else "en-US", "name": "zh-TW-Standard-A" if lang == "zh-TW" else "en-US-News-L", "ssmlGender": "FEMALE"},
+            "audioConfig": {"audioEncoding": "MP3"}
+        },
+    },
+    # 5. Cloudlabs Text to Speech（備用，簡化參數）
+    {
+        "host": "cloudlabs-text-to-speech.p.rapidapi.com",
+        "endpoint": "/synthesize",
+        "headers": {"Content-Type": "application/json"},
+        "body_fn": lambda text, lang: {"text": text, "language": lang.split("-")[0] if "-" in lang else lang, "voice": "female"},
+    },
+]
+
+def _try_tts(cfg: dict, text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
+    try:
+        host = cfg["host"]
+        url = f"https://{host}{cfg['endpoint']}"
+        headers = {**_rapidapi_headers(host), **cfg.get("headers", {})}
+        body = cfg["body_fn"](text, lang)
+        if cfg.get("data"):
+            r = requests.post(url, headers=headers, data=body, timeout=15)
+        else:
+            r = requests.post(url, headers=headers, json=body, timeout=15)
+        if r.status_code != 200:
+            return None
+        ct = r.headers.get("Content-Type", "")
+        if "audio" in ct or "mpeg" in ct or "mp3" in ct or "ogg" in ct or "mp4" in ct:
+            return r.content, ct or "audio/mpeg"
+        if "json" in ct:
+            data = r.json()
+            for key in ("audio", "audioContent", "audio_base64", "data", "url"):
+                val = data.get(key) if isinstance(data, dict) else None
+                if val:
+                    if key == "url":
+                        ar = requests.get(val, timeout=10)
+                        return ar.content, ar.headers.get("Content-Type", "audio/mpeg")
+                    return base64.b64decode(val), "audio/mpeg"
+        return r.content, "audio/mpeg"
+    except Exception:
+        return None
+
+def text_to_speech(text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
+    """輪班嘗試 5 個 TTS API，回傳 (audio_bytes, mime_type)"""
+    for cfg in _TTS_CONFIGS:
+        result = _try_tts(cfg, text, lang)
+        if result and len(result[0]) > 100:
+            return result
+    return None
+
+
+# ── 智慧翻譯（RapidAPI 為主，Gemini 為 fallback）────
+
+def _translate_openl(text: str, target: str = "zh-TW") -> str | None:
+    """OpenL Translate：batch 翻譯"""
+    try:
+        # OpenL 語言代碼是 2 字母（zh, en, ja...）
+        tl = target.split("-")[0] if "-" in target else target
+        r = requests.post(
+            "https://openl-translate.p.rapidapi.com/translate/bulk",
+            headers={**_rapidapi_headers("openl-translate.p.rapidapi.com"), "Content-Type": "application/json"},
+            json={"target_lang": tl, "text": [text]},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return None
+        d = r.json()
+        # 嘗試多種回傳格式
+        if isinstance(d, list) and len(d) > 0:
+            return d[0]
+        if isinstance(d, dict):
+            for key in ("translations", "translated_texts", "text", "result", "data"):
+                val = d.get(key)
+                if val and isinstance(val, list) and len(val) > 0:
+                    return val[0]
+                if val and isinstance(val, str):
+                    return val
+        return None
+    except Exception:
+        return None
+
+def _translate_ai_translate(text: str, target: str = "zh-TW") -> str | None:
+    """AI Translate（備用）"""
+    try:
+        tl = target.split("-")[0] if "-" in target else target
+        r = requests.post(
+            "https://ai-translate.p.rapidapi.com/translate",
+            headers={**_rapidapi_headers("ai-translate.p.rapidapi.com"), "Content-Type": "application/json"},
+            json={"text": text, "to": tl},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return None
+        d = r.json()
+        if isinstance(d, dict):
+            for key in ("translatedText", "translation", "text", "result", "output"):
+                val = d.get(key)
+                if val and isinstance(val, str):
+                    return val
+        return None
+    except Exception:
+        return None
+
+def _translate_just_translated(text: str, target: str = "zh-TW") -> str | None:
+    """Just Translated：GET 查詢翻譯"""
+    try:
+        tl = target.split("-")[0] if "-" in target else target
+        r = requests.get(
+            "https://just-translated.p.rapidapi.com/",
+            headers=_rapidapi_headers("just-translated.p.rapidapi.com"),
+            params={"lang": tl, "text": text},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return None
+        d = r.json()
+        if isinstance(d, dict):
+            for key in ("translatedText", "translation", "text", "result", "output", "translated"):
+                val = d.get(key)
+                if val and isinstance(val, str):
+                    return val
+        if isinstance(d, str):
+            return d
+        return None
+    except Exception:
+        return None
+
+def _translate_microsoft(text: str, target: str = "zh-TW") -> str | None:
+    """Microsoft Translator Text"""
+    try:
+        tl = target  # Microsoft 支援 zh-Hant / zh-Hans / en / ja 等
+        r = requests.post(
+            "https://microsoft-translator-text.p.rapidapi.com/translate",
+            headers={**_rapidapi_headers("microsoft-translator-text.p.rapidapi.com"), "Content-Type": "application/json"},
+            params={"api-version": "3.0", "to": tl},
+            json=[{"Text": text}],
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return None
+        d = r.json()
+        if isinstance(d, list) and len(d) > 0:
+            translations = d[0].get("translations", [])
+            if translations and len(translations) > 0:
+                return translations[0].get("text", "")
+        return None
+    except Exception:
+        return None
+
+def smart_translate(text: str, target: str = "zh-TW") -> str:
+    """智慧翻譯：OpenL → Just Translated → Microsoft → AI Translate → Gemini fallback"""
+    if not text or not text.strip():
+        return text
+    # 已經是中文就直接回傳
+    if any(ord(c) > 127 for c in text[:30]):
+        return text
+    # 輪班嘗試 RapidAPI 翻譯
+    for fn in (_translate_openl, _translate_just_translated, _translate_microsoft, _translate_ai_translate):
+        result = fn(text, target)
+        if result and result.strip() and result != text:
+            return result
+    # 全部失敗，fallback 到 Gemini
+    return translate_text(text, target)
+
+
+# ── 笑話輪班（6 個 API）──────────────────────────
+
+def _get_dad_joke() -> str | None:
+    try:
+        r = requests.get(
+            "https://dad-jokes.p.rapidapi.com/random/joke",
+            headers=_rapidapi_headers("dad-jokes.p.rapidapi.com"),
+            timeout=8,
+        )
+        d = r.json()
+        if d and d.get("body") and len(d["body"]) > 0:
+            joke = d["body"][0]
+            setup = joke.get("setup", "")
+            punchline = joke.get("punchline", "")
+            return f"{setup}\n{punchline}" if punchline else setup
+        return None
+    except Exception:
+        return None
+
+def _get_world_of_jokes() -> str | None:
+    try:
+        r = requests.get(
+            "https://world-of-jokes1.p.rapidapi.com/v1/jokes/random",
+            headers=_rapidapi_headers("world-of-jokes1.p.rapidapi.com"),
+            timeout=8,
+        )
+        d = r.json()
+        return d.get("joke") or d.get("text") or d.get("content")
+    except Exception:
+        return None
+
+def _get_humor_jokes() -> str | None:
+    try:
+        r = requests.get(
+            "https://humor-jokes-and-memes.p.rapidapi.com/jokes/random",
+            headers=_rapidapi_headers("humor-jokes-and-memes.p.rapidapi.com"),
+            timeout=8,
+        )
+        d = r.json()
+        return d.get("joke") or d.get("text")
+    except Exception:
+        return None
+
+def _get_daddy_jokes() -> str | None:
+    try:
+        r = requests.get(
+            "https://daddyjokes.p.rapidapi.com/random",
+            headers=_rapidapi_headers("daddyjokes.p.rapidapi.com"),
+            timeout=8,
+        )
+        d = r.json()
+        return d.get("joke") or d.get("text")
+    except Exception:
+        return None
+
+def get_joke_round_robin() -> str:
+    """笑話輪班：JokeAPI(主) → Dad Jokes → World of Jokes → Humor Jokes → DaddyJokes → Chuck Norris"""
+    result = _fallback_call(
+        lambda: get_joke(),
+        _get_dad_joke,
+        _get_world_of_jokes,
+        _get_humor_jokes,
+        _get_daddy_jokes,
+        lambda: get_chuck_norris(),
+    )
+    return result or "今天笑話庫休息，請自行搞笑 😅"
+
+
+# ── 星座輪班（7 個 API）──────────────────────────
+
+def _get_horoscope_daily_advanced(sign: str) -> dict | None:
+    try:
+        r = requests.get(
+            f"https://daily-horoscope-advanced-api.p.rapidapi.com/api/v1/horoscope/{sign}",
+            headers=_rapidapi_headers("daily-horoscope-advanced-api.p.rapidapi.com"),
+            timeout=8,
+        )
+        d = r.json()
+        if not d:
+            return None
+        return {
+            "sign": sign.capitalize(),
+            "description": d.get("description") or d.get("prediction") or d.get("horoscope", ""),
+            "mood": d.get("mood", "—"),
+            "color": d.get("color", "—"),
+            "lucky_number": str(d.get("lucky_number", d.get("luckyNumber", "—"))),
+            "compatibility": d.get("compatibility", "—"),
+            "source": "Daily Horoscope Advanced",
+        }
+    except Exception:
+        return None
+
+def _get_horoscope_daily_basic(sign: str) -> dict | None:
+    try:
+        r = requests.get(
+            f"https://daily-horoscope-api.p.rapidapi.com/api/v1/horoscope/{sign}",
+            headers=_rapidapi_headers("daily-horoscope-api.p.rapidapi.com"),
+            timeout=8,
+        )
+        d = r.json()
+        if not d:
+            return None
+        return {
+            "sign": sign.capitalize(),
+            "description": d.get("description") or d.get("prediction", ""),
+            "mood": d.get("mood", "—"),
+            "color": d.get("color", "—"),
+            "lucky_number": str(d.get("lucky_number", "—")),
+            "compatibility": d.get("compatibility", "—"),
+            "source": "Daily Horoscope",
+        }
+    except Exception:
+        return None
+
+def _get_horoscope_zodiac_rashifal(sign: str) -> dict | None:
+    try:
+        r = requests.get(
+            f"https://zodiac-horoscope-api-rashifal.p.rapidapi.com/{sign}",
+            headers=_rapidapi_headers("zodiac-horoscope-api-rashifal.p.rapidapi.com"),
+            timeout=8,
+        )
+        d = r.json()
+        if not d:
+            return None
+        return {
+            "sign": sign.capitalize(),
+            "description": d.get("description") or d.get("prediction", ""),
+            "mood": d.get("mood", "—"),
+            "color": d.get("color", "—"),
+            "lucky_number": str(d.get("lucky_number", "—")),
+            "compatibility": d.get("compatibility", "—"),
+            "source": "Zodiac Rashifal",
+        }
+    except Exception:
+        return None
+
+def _get_horostory(sign: str) -> dict | None:
+    try:
+        r = requests.get(
+            f"https://horostory.p.rapidapi.com/horoscope/{sign}",
+            headers=_rapidapi_headers("horostory.p.rapidapi.com"),
+            timeout=8,
+        )
+        d = r.json()
+        if not d:
+            return None
+        return {
+            "sign": sign.capitalize(),
+            "description": d.get("story") or d.get("description") or d.get("prediction", ""),
+            "mood": d.get("mood", "—"),
+            "color": d.get("color", "—"),
+            "lucky_number": str(d.get("lucky_number", "—")),
+            "compatibility": d.get("compatibility", "—"),
+            "source": "Horostory",
+        }
+    except Exception:
+        return None
+
+def _get_astrologer(sign: str) -> dict | None:
+    try:
+        r = requests.get(
+            f"https://astrologer.p.rapidapi.com/api/v1/horoscope/{sign}",
+            headers=_rapidapi_headers("astrologer.p.rapidapi.com"),
+            timeout=8,
+        )
+        d = r.json()
+        if not d:
+            return None
+        return {
+            "sign": sign.capitalize(),
+            "description": d.get("description") or d.get("prediction", ""),
+            "mood": d.get("mood", "—"),
+            "color": d.get("color", "—"),
+            "lucky_number": str(d.get("lucky_number", "—")),
+            "compatibility": d.get("compatibility", "—"),
+            "source": "Astrologer",
+        }
+    except Exception:
+        return None
+
+def _get_starmatch(sign1: str, sign2: str) -> dict | None:
+    """星座配對"""
+    try:
+        r = requests.get(
+            f"https://starmatch-ai.p.rapidapi.com/api/v1/compatibility/{sign1}/{sign2}",
+            headers=_rapidapi_headers("starmatch-ai.p.rapidapi.com"),
+            timeout=8,
+        )
+        d = r.json()
+        if not d:
+            return None
+        return {
+            "sign1": sign1.capitalize(),
+            "sign2": sign2.capitalize(),
+            "compatibility": d.get("compatibility_score") or d.get("score") or d.get("percentage", "?"),
+            "description": d.get("description") or d.get("result", ""),
+            "source": "StarMatch AI",
+        }
+    except Exception:
+        return None
+
+def get_horoscope_round_robin(sign: str) -> dict | None:
+    """星座輪班：Aztro(主) → Daily Advanced → Daily Basic → Zodiac Rashifal → Horostory → Astrologer"""
+    s = SIGN_MAP.get(sign, sign.lower())
+    return _fallback_call(
+        lambda: get_horoscope(sign),
+        lambda: _get_horoscope_daily_advanced(s),
+        lambda: _get_horoscope_daily_basic(s),
+        lambda: _get_horoscope_zodiac_rashifal(s),
+        lambda: _get_horostory(s),
+        lambda: _get_astrologer(s),
+    )
+
+
+# ── 新聞（2 個輪班）──────────────────────────────
+
+def _get_bing_news() -> list[dict] | None:
+    try:
+        r = requests.get(
+            "https://bing-news-search1.p.rapidapi.com/news",
+            headers=_rapidapi_headers("bing-news-search1.p.rapidapi.com"),
+            params={"mkt": "zh-TW", "safeSearch": "Off", "textFormat": "Raw"},
+            timeout=10,
+        )
+        d = r.json()
+        items = d.get("value", [])
+        return [{"title": i.get("name", ""), "url": i.get("url", ""), "desc": i.get("description", "")} for i in items[:5]]
+    except Exception:
+        return None
+
+def _get_ai_news() -> list[dict] | None:
+    try:
+        r = requests.get(
+            "https://ai-news-global.p.rapidapi.com/news",
+            headers=_rapidapi_headers("ai-news-global.p.rapidapi.com"),
+            params={"limit": "5"},
+            timeout=10,
+        )
+        d = r.json()
+        if isinstance(d, list):
+            return [{"title": i.get("title", ""), "url": i.get("url", ""), "desc": i.get("summary", "")} for i in d[:5]]
+        items = d.get("articles", d.get("news", []))
+        return [{"title": i.get("title", ""), "url": i.get("url", ""), "desc": i.get("summary", i.get("description", ""))} for i in items[:5]]
+    except Exception:
+        return None
+
+def get_news_round_robin() -> list[dict]:
+    """新聞輪班：Bing News(主) → AI News"""
+    result = _fallback_call(_get_bing_news, _get_ai_news)
+    return result or []
+
+
+# ── Shazam 聽歌識曲 ──────────────────────────────
+
+def shazam_recognize(audio_bytes: bytes) -> dict | None:
+    """用 Shazam 識別音訊，回傳歌曲資訊"""
+    try:
+        b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        r = requests.post(
+            "https://shazam.p.rapidapi.com/songs/detect",
+            headers={**_rapidapi_headers("shazam.p.rapidapi.com"), "Content-Type": "application/octet-stream"},
+            data=audio_bytes,
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return None
+        d = r.json()
+        track = d.get("track", {})
+        if not track:
+            return None
+        return {
+            "title": track.get("title", "未知歌曲"),
+            "artist": track.get("subtitle", "未知歌手"),
+            "album": track.get("sections", [{}])[0].get("metadata", [{}])[0].get("text", "") if track.get("sections") else "",
+            "image": track.get("images", {}).get("coverarthq", track.get("images", {}).get("coverart", "")),
+            "url": track.get("url", ""),
+        }
+    except Exception:
+        return None
+
+
+# ── TTS 音檔暫存管理 ─────────────────────────────
+
+_tts_cache: dict[str, tuple[bytes, str, float]] = {}  # filename -> (bytes, mime, timestamp)
+
+def save_tts_audio(audio_bytes: bytes, mime_type: str = "audio/mpeg") -> str:
+    """儲存 TTS 音檔，回傳公開存取用的 filename"""
+    fname = f"tts_{int(time.time()*1000)}.m4a"
+    _tts_cache[fname] = (audio_bytes, mime_type, time.time())
+    # 清理過舊緩存（保留最近 50 個）
+    if len(_tts_cache) > 50:
+        oldest = sorted(_tts_cache.items(), key=lambda x: x[1][2])[0][0]
+        _tts_cache.pop(oldest, None)
+    return fname
+
+def get_tts_audio(filename: str) -> tuple[bytes, str] | None:
+    """讀取暫存 TTS 音檔"""
+    entry = _tts_cache.get(filename)
+    if entry:
+        return entry[0], entry[1]
     return None
