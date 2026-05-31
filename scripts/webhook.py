@@ -23,8 +23,10 @@ from sheets import (
 
 app = Flask(__name__)
 
-configuration = Configuration(access_token=os.environ["LINE_CHANNEL_ACCESS_TOKEN"])
-handler = WebhookHandler(os.environ["LINE_CHANNEL_SECRET"])
+_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+_secret = os.environ.get("LINE_CHANNEL_SECRET", "")
+configuration = Configuration(access_token=_token)
+handler = WebhookHandler(_secret)
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 POINTS_THRESHOLD = int(os.environ.get("POINTS_THRESHOLD", "5"))  # 每週最低點數
 
