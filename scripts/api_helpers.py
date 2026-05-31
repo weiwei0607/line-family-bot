@@ -870,12 +870,11 @@ def translate_text(text: str, target_lang: str = "zh-TW", source_lang: str = "au
 # ── NASA APOD（每日天文圖片）──────────────────────
 
 def get_nasa_apod() -> dict | None:
-    if not NASA_KEY:
-        return None
+    key = NASA_KEY or "DEMO_KEY"  # DEMO_KEY: 50次/天，不需要註冊
     try:
         r = requests.get(
             "https://api.nasa.gov/planetary/apod",
-            params={"api_key": NASA_KEY},
+            params={"api_key": key},
             timeout=12,
         )
         if _check_quota(r): return {"_quota": True}
