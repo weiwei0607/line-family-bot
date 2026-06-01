@@ -430,15 +430,14 @@ def generate_image(prompt: str) -> str | None:
         return None
 
 
-# ── 匯率（frankfurter.app，免費無需 key）──────────
+# ── 匯率（open.er-api.com，免費無需 key）──────────
 
 def get_currency(from_curr: str, to_curr: str = "TWD") -> dict | None:
     from_curr = CURRENCY_MAP.get(from_curr, from_curr.upper())
     to_curr = CURRENCY_MAP.get(to_curr, to_curr.upper())
     try:
         r = requests.get(
-            "https://api.frankfurter.app/latest",
-            params={"from": from_curr, "to": to_curr},
+            f"https://open.er-api.com/v6/latest/{from_curr}",
             timeout=10,
         )
         if r.status_code != 200:
