@@ -26,7 +26,7 @@ from api_helpers import (
     get_spanish_dict, get_meal_random, get_open_trivia, get_number_fact,
     get_nasa_apod, translate_text, smart_translate, text_to_speech, save_tts_audio, get_tts_audio,
     get_joke_round_robin, get_horoscope_round_robin, get_news_round_robin,
-    get_starmatch,
+    get_starmatch, call_groq, groq_stt,
     JLPT_N5_KANJI, QUOTA_MSG, TMDB_KEY,
 )
 
@@ -176,7 +176,7 @@ def _send_movie(reply_token: str, movie: dict):
 
 def call_gemini(prompt: str) -> str:
     if not GEMINI_KEY:
-        return "（需要設定 GEMINI_API_KEY）"
+        return call_groq(prompt) or "（需要設定 GEMINI_API_KEY 或 GROQ_API_KEY）"
     try:
         url = (
             "https://generativelanguage.googleapis.com/v1beta/"
@@ -187,9 +187,11 @@ def call_gemini(prompt: str) -> str:
             json={"contents": [{"parts": [{"text": prompt}]}]},
             timeout=20,
         )
+        if resp.status_code == 429:
+            return call_groq(prompt) or "AI 額度已達上限，請稍後再試"
         return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except Exception as e:
-        return f"AI 回答失敗：{e}"
+    except Exception:
+        return call_groq(prompt) or "AI 暫時無法回應"
 
 # ─── 指令處理 ─────────────────────────────────
 
@@ -1411,32 +1413,33 @@ def handle_audio_message(event: MessageEvent):
         reply(reply_token, f"🎤 語音下載失敗：{e}")
         return
 
-    # ── 用 Gemini 做語音轉文字 ──
-    if not GEMINI_KEY:
-        reply(reply_token, "🎤 語音轉文字需要設定 GEMINI_API_KEY")
-        return
+    # ── 語音轉文字：Groq Whisper 優先，Gemini 作 fallback ──
+    transcript = groq_stt(audio_bytes, "audio/mpeg")
 
-    try:
-        import base64
-        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-        mime_type = "audio/mpeg"
+    if not transcript and GEMINI_KEY:
+        try:
+            import base64
+            audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+            url = (
+                "https://generativelanguage.googleapis.com/v1beta/"
+                f"models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
+            )
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"text": "請把這段語音轉成文字，只給轉錄結果，不要任何解釋。如果是中文請用繁體中文。"},
+                        {"inline_data": {"mime_type": "audio/mpeg", "data": audio_b64}},
+                    ]
+                }]
+            }
+            resp = requests.post(url, json=payload, timeout=30)
+            transcript = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except Exception as e:
+            reply(reply_token, f"🎤 語音轉文字失敗：{e}")
+            return
 
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/"
-            f"models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
-        )
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"text": "請把這段語音轉成文字，只給轉錄結果，不要任何解釋。如果是中文請用繁體中文。"},
-                    {"inline_data": {"mime_type": mime_type, "data": audio_b64}},
-                ]
-            }]
-        }
-        resp = requests.post(url, json=payload, timeout=30)
-        transcript = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except Exception as e:
-        reply(reply_token, f"🎤 語音轉文字失敗：{e}")
+    if not transcript:
+        reply(reply_token, "🎤 語音轉文字無法使用，請設定 GROQ_API_KEY 或 GEMINI_API_KEY")
         return
 
     if not transcript:

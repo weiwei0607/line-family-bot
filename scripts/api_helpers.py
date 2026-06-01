@@ -29,19 +29,59 @@ def _apininjas_headers() -> dict:
 def _gemini_key() -> str:
     return os.environ.get("GEMINI_API_KEY", "")
 
+def call_groq(prompt: str) -> str:
+    key = os.environ.get("GROQ_API_KEY", "")
+    if not key:
+        return ""
+    try:
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 500,
+            },
+            timeout=15,
+        )
+        return resp.json()["choices"][0]["message"]["content"].strip()
+    except Exception:
+        return ""
+
+
+def groq_stt(audio_bytes: bytes, mime: str = "audio/mpeg") -> str:
+    key = os.environ.get("GROQ_API_KEY", "")
+    if not key:
+        return ""
+    try:
+        ext = "mp3" if "mpeg" in mime else "m4a"
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {key}"},
+            files={"file": (f"audio.{ext}", io.BytesIO(audio_bytes), mime)},
+            data={"model": "whisper-large-v3-turbo", "response_format": "text"},
+            timeout=30,
+        )
+        return resp.text.strip() if resp.status_code == 200 else ""
+    except Exception:
+        return ""
+
+
 def call_gemini(prompt: str) -> str:
     key = _gemini_key()
     if not key:
-        return ""
+        return call_groq(prompt)
     try:
         resp = requests.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
             json={"contents": [{"parts": [{"text": prompt}]}]},
             timeout=15,
         )
+        if resp.status_code == 429:
+            return call_groq(prompt)
         return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception:
-        return ""
+        return call_groq(prompt)
 
 
 # ── 快取機制（天氣 30 分鐘、星座 6 小時、新聞 1 小時）──
