@@ -12,5 +12,5 @@ jobs:
       - name: Trigger daily push
         run: |
           curl -s -X POST "${{ secrets.RENDER_APP_URL }}/daily_push" \
-            -H "Authorization: Bearer ${{ secrets.FAMILY_LINE_CHANNEL_SECRET }}" \
+            -H "Authorization: Bearer ${{ secrets.FAMILY_LINE_CHANNEL_ACCESS_TOKEN }}" \
             --fail
