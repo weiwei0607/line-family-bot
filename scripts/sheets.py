@@ -763,3 +763,28 @@ def rename_tidy_member(old_name: str, new_name: str) -> list[dict]:
                 "content": r[4] if len(r) > 4 else "",
             })
     return changed
+
+
+def rename_latest_tidy_member(old_name: str, new_name: str) -> dict | None:
+    """只修正「收拾紀錄」中最新一筆符合的成員名稱，回傳該筆明細或 None"""
+    svc = _get_service()
+    sid = _get_sheet_id()
+    rows = _read("收拾紀錄", "A2:E1000")
+    # 從底部往上找最新一筆
+    for i in range(len(rows) - 1, -1, -1):
+        r = rows[i]
+        if len(r) >= 3 and r[2] == old_name:
+            row_num = i + 2  # A2 開始
+            svc.spreadsheets().values().update(
+                spreadsheetId=sid,
+                range=f"收拾紀錄!C{row_num}",
+                valueInputOption="USER_ENTERED",
+                body={"values": [[new_name]]},
+            ).execute()
+            return {
+                "date": r[0] if len(r) > 0 else "",
+                "time": r[1] if len(r) > 1 else "",
+                "area": r[3] if len(r) > 3 else "",
+                "content": r[4] if len(r) > 4 else "",
+            }
+    return None

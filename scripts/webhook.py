@@ -43,7 +43,7 @@ from sheets import (
     add_income, get_declutter_income, cancel_last_record,
     pay_fine, get_outstanding_fines,
     add_tidy_log, format_tidy_summary, _detect_area,
-    rename_tidy_member,
+    rename_latest_tidy_member,
 )
 
 app = Flask(__name__)
@@ -1171,15 +1171,15 @@ def handle_admin(reply_token: str, source, text: str):
     if m_rename:
         old_name = m_rename.group(1).strip()
         new_name = m_rename.group(2).strip()
-        changed = rename_tidy_member(old_name, new_name)
+        changed = rename_latest_tidy_member(old_name, new_name)
         if not changed:
             reply(reply_token, f"找不到「{old_name}」的收拾紀錄，無需修正")
             return True
-        lines = [f"✅ 已將 {len(changed)} 筆「{old_name}」修正為「{new_name}」"]
-        for c in changed:
-            area_emoji = "🏠" if c['area'] == "自己" else "🛋" if c['area'] == "公共" else "📦"
-            lines.append(f"  {c['date']} {c['time']} {area_emoji} {c['content']}")
-        reply(reply_token, "\n".join(lines))
+        c = changed
+        area_emoji = "🏠" if c['area'] == "自己" else "🛋" if c['area'] == "公共" else "📦"
+        reply(reply_token,
+              f"✅ 已將最新一筆「{old_name}」修正為「{new_name}」\n"
+              f"  {c['date']} {c['time']} {area_emoji} {c['content']}")
         return True
 
     return False
