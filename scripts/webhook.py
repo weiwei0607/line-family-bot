@@ -1142,10 +1142,9 @@ def handle_ai_mention(reply_token: str, text: str):
     return False
 
 
-def handle_admin(reply_token: str, event: MessageEvent, text: str):
+def handle_admin(reply_token: str, source, text: str):
     """管理指令"""
     if text in ["群組id", "群組ID", "groupid", "群id"]:
-        source = event.source
         gid = getattr(source, "group_id", None) or getattr(source, "room_id", None) or "不是群組訊息"
         reply(reply_token, f"群組 ID：{gid}")
         return True
@@ -1153,7 +1152,7 @@ def handle_admin(reply_token: str, event: MessageEvent, text: str):
     m = re.match(r"^(?:我是|叫我|我叫)\s*(.+)", text)
     if m:
         name = m.group(1).strip()
-        user_id = getattr(event.source, "user_id", "")
+        user_id = getattr(source, "user_id", "")
         approved = get_members()
         if name not in approved:
             names_str = "、".join(approved) if approved else "（尚未設定成員）"
@@ -1173,7 +1172,7 @@ def handle_admin(reply_token: str, event: MessageEvent, text: str):
     if m_rename:
         old_name = m_rename.group(1).strip()
         new_name = m_rename.group(2).strip()
-        user_id = getattr(event.source, "user_id", "")
+        user_id = getattr(source, "user_id", "")
         # 先預覽數量
         count = preview_rename_tidy_member(old_name, new_name)
         if count == 0:
