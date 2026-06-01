@@ -12,7 +12,7 @@ __all__ = ['calc_bmi', 'get_calories_burned', 'get_nutrition', 'logger', 'search
 logger = logging.getLogger(__name__)
 
 from api_helpers import (
-_retry_http, _check_quota, _apininjas_headers, _ninjas_get
+_retry_http, _check_quota, _apininjas_headers, _ninjas_get, APININJAS_KEY
 )
 
 

@@ -13,8 +13,9 @@ __all__ = ['SIGN_MAP', 'generate_image', 'get_advice', 'get_anime_quote', 'get_a
 logger = logging.getLogger(__name__)
 
 from api_helpers import (
-_retry_http, _cached, _check_quota, _apininjas_headers, _ninjas_get, call_gemini, call_groq, QUOTA_MSG, TMDB_KEY, NASA_KEY, PEXELS_KEY, NEWSAPI_KEY, ABSTRACT_KEY
+_retry_http, _cached, _check_quota, _apininjas_headers, _ninjas_get, _fallback_call, call_gemini, call_groq, QUOTA_MSG, TMDB_KEY, NASA_KEY, PEXELS_KEY, NEWSAPI_KEY, ABSTRACT_KEY, APININJAS_KEY
 )
+import html as _html
 
 
 

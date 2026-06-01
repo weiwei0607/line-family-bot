@@ -8,7 +8,10 @@ import json
 import time
 import threading
 from datetime import datetime, timezone, timedelta
+import logging
 from google.oauth2.credentials import Credentials
+
+logger = logging.getLogger(__name__)
 
 # ── 簡易快取（避免每個指令都打 Sheets API）──────
 _sheet_cache: dict[str, tuple] = {}  # key -> (value, timestamp)
