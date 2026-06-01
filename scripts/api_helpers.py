@@ -1003,18 +1003,28 @@ def get_news_round_robin() -> list[dict]:
 
 # ── TTS 音檔暫存管理 ─────────────────────────────
 
-_tts_cache: dict[str, tuple[bytes, str, float]] = {}
+_TTS_DIR = "/tmp/tts_files"
+os.makedirs(_TTS_DIR, exist_ok=True)
 
 def save_tts_audio(audio_bytes: bytes, mime_type: str = "audio/mpeg") -> str:
     fname = f"tts_{int(time.time()*1000)}.m4a"
-    _tts_cache[fname] = (audio_bytes, mime_type, time.time())
-    if len(_tts_cache) > 50:
-        oldest = sorted(_tts_cache.items(), key=lambda x: x[1][2])[0][0]
-        _tts_cache.pop(oldest, None)
+    with open(os.path.join(_TTS_DIR, fname), "wb") as f:
+        f.write(audio_bytes)
+    # 只保留最新 50 個，清掉舊的
+    files = sorted(
+        [fn for fn in os.listdir(_TTS_DIR) if fn.startswith("tts_")],
+        key=lambda fn: os.path.getmtime(os.path.join(_TTS_DIR, fn)),
+    )
+    for old in files[:-50]:
+        try:
+            os.remove(os.path.join(_TTS_DIR, old))
+        except OSError:
+            pass
     return fname
 
 def get_tts_audio(filename: str) -> tuple[bytes, str] | None:
-    entry = _tts_cache.get(filename)
-    if entry:
-        return entry[0], entry[1]
+    path = os.path.join(_TTS_DIR, filename)
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return f.read(), "audio/mpeg"
     return None

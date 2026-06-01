@@ -5,6 +5,7 @@ LINE 家庭群機器人 webhook
 import os
 import re
 import json
+import difflib
 import requests
 from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
@@ -18,7 +19,7 @@ from api_helpers import (
     format_weather_block, get_advice, get_horoscope, get_fun_fact,
     search_recipes_by_ingredients, get_nutrition,
     get_joke, get_trivia, get_cocktail, get_random_activity,
-    get_exercise, get_anime_quote,
+    get_exercise, get_anime_quote, generate_image,
     get_currency, get_gold_price, get_movie, get_streaming, calc_bmi,
     get_chuck_norris, get_motivation_quote, get_movie_quote,
     get_astronomy_fact, get_calories_burned,
@@ -525,12 +526,21 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
                 name = futures[future]
                 results[name] = future.result()
 
-        lines = ["✨ 今日全家運勢\n"]
-        for name, sign in MEMBER_SIGNS.items():
+        def _translate_one(args):
+            name, sign = args
             data = results.get(name)
             if data and data.get("description"):
                 desc = call_gemini(f"翻成繁體中文1-2句：{data['description']}")
-                lines.append(f"【{name}】{sign}座\n{desc}\n幸運色：{data.get('color','—')}　數字：{data.get('lucky_number','—')}\n")
+                return name, sign, desc, data.get("color", "—"), data.get("lucky_number", "—")
+            return name, sign, None, "—", "—"
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            translated = list(executor.map(_translate_one, MEMBER_SIGNS.items()))
+
+        lines = ["✨ 今日全家運勢\n"]
+        for name, sign, desc, color, lucky in translated:
+            if desc:
+                lines.append(f"【{name}】{sign}座\n{desc}\n幸運色：{color}　數字：{lucky}\n")
             else:
                 lines.append(f"【{name}】{sign}座\n（資料取得失敗）\n")
         reply(reply_token, "\n".join(lines))
@@ -661,10 +671,15 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
             reply(reply_token, call_gemini("給我一句著名動漫台詞，說出出自哪部作品"))
         return True
 
-    # ── 小花畫圖（API 已下架，暫時停用）──
+    # ── 小花畫圖（Pollinations.ai，免費無限）──
     m = re.match(r"^(?:小花畫|畫)\s+(.+)$", text)
     if m:
-        reply(reply_token, "🎨 AI 畫圖功能暫時維護中，請稍後再試")
+        prompt = m.group(1).strip()
+        url = generate_image(prompt)
+        if url:
+            reply_image(reply_token, url)
+        else:
+            reply(reply_token, "🎨 圖片生成失敗，請再試一次")
         return True
 
     # ── 匯率 ──
@@ -1368,6 +1383,20 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
             f"你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。\n\n問題：{text}"
         )
         reply(reply_token, answer)
+        return
+
+    # 拼字容錯：短指令找最接近的
+    _KNOWN_COMMANDS = [
+        "家事清單", "點數", "我的點數", "購物清單", "帳目", "欠款",
+        "天氣", "今天吃什麼", "星座", "今日全員運勢", "笑話", "冷知識",
+        "今日宇宙", "推薦電影", "新聞", "今日新聞", "金價", "激勵名言",
+        "今日日文單字", "今日西文單字", "今日漢字", "說明", "指令清單",
+        "今天做什麼", "今天運動", "動漫名言", "出題", "翻譯",
+    ]
+    if len(text) <= 8 and not re.search(r"[a-zA-Z0-9]", text):
+        close = difflib.get_close_matches(text, _KNOWN_COMMANDS, n=1, cutoff=0.6)
+        if close:
+            reply(reply_token, f"你是想說「{close[0]}」嗎？試試傳那個指令 😊")
 
 
 @handler.add(MessageEvent, message=TextMessageContent)
