@@ -739,3 +739,32 @@ def format_tidy_summary() -> str:
             lines.append(f"⚠️ {member}：{' / '.join(parts)}")
     lines.append("\n傳「收拾 [內容]」來記錄，例如：\n• 收拾 收了自己的書桌\n• 收拾 公共區域掃地")
     return "\n".join(lines)
+
+
+def preview_rename_tidy_member(old_name: str, new_name: str) -> int:
+    """預覽：回傳「收拾紀錄」中有幾筆舊名字需要修改"""
+    rows = _read("收拾紀錄", "A2:E1000")
+    count = 0
+    for r in rows:
+        if len(r) >= 3 and r[2] == old_name:
+            count += 1
+    return count
+
+
+def rename_tidy_member(old_name: str, new_name: str) -> int:
+    """批次修正「收拾紀錄」中的成員名稱，回傳實際修改筆數"""
+    svc = _get_service()
+    sid = _get_sheet_id()
+    rows = _read("收拾紀錄", "A2:E1000")
+    changed = 0
+    for i, r in enumerate(rows):
+        if len(r) >= 3 and r[2] == old_name:
+            row_num = i + 2  # A2 開始
+            svc.spreadsheets().values().update(
+                spreadsheetId=sid,
+                range=f"收拾紀錄!C{row_num}",
+                valueInputOption="USER_ENTERED",
+                body={"values": [[new_name]]},
+            ).execute()
+            changed += 1
+    return changed
