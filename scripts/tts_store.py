@@ -65,6 +65,7 @@ def save_tts_audio(filename: str, audio_bytes: bytes, mime_type: str = "audio/mp
                 ")"
             )
             c.commit()
+            _maybe_cleanup()
     except sqlite3.Error as exc:
         logging.warning("tts_store save error: %s", exc)
 
@@ -90,6 +91,26 @@ def delete_tts_audio(filename: str) -> None:
             c.commit()
     except sqlite3.Error as exc:
         logging.warning("tts_store delete error: %s", exc)
+
+
+def _maybe_cleanup():
+    """Probabilistic cleanup (~1% chance per write) to avoid unbounded growth."""
+    import random
+    if random.random() > 0.01:
+        return
+    try:
+        with _write_lock, _conn() as c:
+            # Old cron_log entries (> 90 days)
+            cutoff = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+            c.execute("DELETE FROM cron_log WHERE run_date <= ?", (cutoff,))
+            # Old webhook_dedup entries (> 1 hour)
+            c.execute(
+                "DELETE FROM webhook_dedup WHERE created_at <= ?",
+                ((datetime.now() - timedelta(hours=1)).isoformat(),),
+            )
+            c.commit()
+    except sqlite3.Error as exc:
+        logging.warning("tts_store cleanup error: %s", exc)
 
 
 # ─── Cron idempotency ─────────────────────────────────────
@@ -120,6 +141,7 @@ def cron_mark_done(task_name: str, date_str: str | None = None) -> None:
                 (task_name, date_str),
             )
             c.commit()
+            _maybe_cleanup()
     except sqlite3.Error as exc:
         logging.warning("cron_mark_done error: %s", exc)
 
@@ -147,6 +169,7 @@ def webhook_seen(dedup_key: str, ttl_seconds: int = 300) -> bool:
                 ((datetime.now() - timedelta(seconds=ttl_seconds * 2)).isoformat(),),
             )
             c.commit()
+            _maybe_cleanup()
             return False
     except sqlite3.Error as exc:
         logging.warning("webhook_seen error: %s", exc)

@@ -30,11 +30,50 @@ GIPHY_KEY = os.environ.get("GIPHY_KEY", "")
 
 QUOTA_MSG = "❌ 今日 API 額度用完了，明天再試試！"
 
+# ─── Simple circuit breaker for API-Ninjas ────────────────
+_CB_STATE = {"failures": 0, "open_until": 0.0}
+_CB_THRESHOLD = 3
+_CB_COOLDOWN = 300  # 5 minutes
+
+def _cb_record(success: bool):
+    if success:
+        _CB_STATE["failures"] = 0
+    else:
+        _CB_STATE["failures"] += 1
+        if _CB_STATE["failures"] >= _CB_THRESHOLD:
+            _CB_STATE["open_until"] = time.time() + _CB_COOLDOWN
+
+def _cb_is_open() -> bool:
+    if time.time() < _CB_STATE["open_until"]:
+        return True
+    return False
+
+
 def _check_quota(r) -> bool:
     return r.status_code == 429
 
 def _apininjas_headers() -> dict:
     return {"X-Api-Key": APININJAS_KEY}
+
+def _ninjas_get(path: str, **kwargs):
+    """Wrapper for api.api-ninjas.com with circuit breaker."""
+    if _cb_is_open():
+        return None
+    url = f"https://api.api-ninjas.com/v1{path}"
+    try:
+        r = _retry_http(lambda: requests.get(url, headers=_apininjas_headers(), timeout=10, **kwargs))
+        if _check_quota(r):
+            _cb_record(False)
+            return None
+        if not r.ok:
+            _cb_record(False)
+            return None
+        _cb_record(True)
+        return r
+    except Exception:
+        _cb_record(False)
+        return None
+
 
 def _gemini_key() -> str:
     return os.environ.get("GEMINI_API_KEY", "")

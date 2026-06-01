@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from api_helpers import (
-_retry_http, _check_quota, _apininjas_headers
+_retry_http, _check_quota, _apininjas_headers, _ninjas_get
 )
 
 
@@ -29,9 +29,8 @@ def get_nutrition(query: str) -> list[dict]:
     if not APININJAS_KEY:
         return []
     try:
-        r = requests.get("https://api.api-ninjas.com/v1/nutrition",
-                         headers=_apininjas_headers(), params={"query": query}, timeout=10)
-        if _check_quota(r):
+        r = _ninjas_get(r"/nutrition", params={"query": query}, timeout=10)
+        if r is None:
             return [{"_quota": True}]
         return r.json().get("items", [])
     except Exception:
@@ -55,9 +54,8 @@ def get_calories_burned(activity: str, weight_kg: float = 60, duration_min: int 
         return []
     params = {"activity": activity, "weight": str(weight_kg), "duration": str(duration_min)}
     try:
-        r = requests.get("https://api.api-ninjas.com/v1/caloriesburned",
-                         headers=_apininjas_headers(), params=params, timeout=10)
-        if _check_quota(r):
+        r = _ninjas_get(r"/caloriesburned", params=params, timeout=10)
+        if r is None:
             return [{"_quota": True}]
         return r.json()
     except Exception:

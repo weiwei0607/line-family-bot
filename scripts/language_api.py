@@ -59,6 +59,9 @@ def get_jisho(word: str) -> dict | None:
 
 
 def get_kanji_info(char: str) -> dict | None:
+    # SSRF guard: only allow a single CJK character or simple ASCII
+    if not char or len(char) > 1 or (ord(char) < 0x4E00 and not char.isascii()):
+        return None
     try:
         r = requests.get(f"https://kanjiapi.dev/v1/kanji/{char}", timeout=8)
         if r.status_code != 200:

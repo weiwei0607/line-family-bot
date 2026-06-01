@@ -89,7 +89,13 @@ _TZ_MAP = {
 }
 
 def get_world_time(city: str) -> dict | None:
-    tz = _TZ_MAP.get(city) or city
+    tz = _TZ_MAP.get(city)
+    if not tz:
+        tz = city
+        # SSRF guard: only allow valid IANA timezone patterns like Continent/City
+        import re
+        if not re.fullmatch(r"[A-Za-z_]+/[A-Za-z_]+(/[A-Za-z_]+)?", tz):
+            return None
     try:
         r = requests.get(f"https://worldtimeapi.org/api/timezone/{tz}", timeout=8)
         if r.status_code != 200:

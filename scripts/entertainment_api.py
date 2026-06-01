@@ -8,7 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from api_helpers import (
-_retry_http, _cached, _check_quota, _apininjas_headers, call_gemini, call_groq, QUOTA_MSG, TMDB_KEY, NASA_KEY, PEXELS_KEY, NEWSAPI_KEY, ABSTRACT_KEY
+_retry_http, _cached, _check_quota, _apininjas_headers, _ninjas_get, call_gemini, call_groq, QUOTA_MSG, TMDB_KEY, NASA_KEY, PEXELS_KEY, NEWSAPI_KEY, ABSTRACT_KEY
 )
 
 
@@ -64,9 +64,8 @@ def get_joke() -> str:
     if not APININJAS_KEY:
         return ""
     try:
-        r = requests.get("https://api.api-ninjas.com/v1/jokes",
-                         headers=_apininjas_headers(), timeout=10)
-        if _check_quota(r):
+        r = _ninjas_get(r"/jokes", timeout=10)
+        if r is None:
             return QUOTA_MSG
         items = r.json()
         return items[0].get("joke", "") if items else ""
@@ -77,9 +76,8 @@ def get_trivia() -> dict | None:
     if not APININJAS_KEY:
         return None
     try:
-        r = requests.get("https://api.api-ninjas.com/v1/trivia",
-                         headers=_apininjas_headers(), timeout=10)
-        if _check_quota(r):
+        r = _ninjas_get(r"/trivia", timeout=10)
+        if r is None:
             return {"_quota": True}
         items = r.json()
         return {"question": items[0].get("question", ""), "answer": items[0].get("answer", "")} if items else None
@@ -91,9 +89,8 @@ def get_cocktail(name: str = "") -> dict | None:
         return None
     params = {"name": name if name else random.choice(["lemonade", "tea", "smoothie", "juice"])}
     try:
-        r = requests.get("https://api.api-ninjas.com/v1/cocktail",
-                         headers=_apininjas_headers(), params=params, timeout=10)
-        if _check_quota(r):
+        r = _ninjas_get(r"/cocktail", params=params, timeout=10)
+        if r is None:
             return {"_quota": True}
         items = r.json()
         return items[0] if items else None
@@ -113,13 +110,11 @@ def get_exercise() -> dict | None:
         return None
     try:
         muscles = ["biceps", "triceps", "chest", "back", "shoulders", "legs", "abs"]
-        r = requests.get("https://api.api-ninjas.com/v1/exercises",
-                         headers=_apininjas_headers(),
-                         params={"muscle": random.choice(muscles)},
-                         timeout=10)
-        if not _check_quota(r):
-            items = r.json()
-            return items[0] if items else None
+        r = _ninjas_get(r"/exercises", params={"muscle": random.choice(muscles)}, timeout=10)
+        if r is None:
+            return None
+        items = r.json()
+        return items[0] if items else None
     except Exception as _exc:
         logger.warning("API error: %s", _exc)
     return None
@@ -157,7 +152,7 @@ def get_tmdb_movie(title: str = "") -> dict | None:
                 params={"api_key": TMDB_KEY, "query": title, "language": "zh-TW", "region": "TW"},
                 timeout=10,
             )
-            if _check_quota(r):
+            if r is None:
                 return {"_quota": True}
             results = r.json().get("results", [])
             movie = results[0] if results else None
@@ -167,7 +162,7 @@ def get_tmdb_movie(title: str = "") -> dict | None:
                 params={"api_key": TMDB_KEY, "language": "zh-TW", "region": "TW"},
                 timeout=10,
             )
-            if _check_quota(r):
+            if r is None:
                 return {"_quota": True}
             results = r.json().get("results", [])
             movie = random.choice(results[:20]) if results else None
@@ -200,7 +195,7 @@ def get_tmdb_streaming_by_title(title: str) -> list:
             params={"api_key": TMDB_KEY, "query": title, "language": "zh-TW"},
             timeout=10,
         )
-        if _check_quota(r):
+        if r is None:
             return [{"_quota": True}]
         results = r.json().get("results", [])
         if not results:
@@ -236,9 +231,8 @@ def get_chuck_norris() -> str:
 def get_motivation_quote() -> dict | None:
     try:
         if APININJAS_KEY:
-            r = requests.get("https://api.api-ninjas.com/v1/quotes",
-                             headers=_apininjas_headers(), timeout=8)
-            if _check_quota(r):
+            r = _ninjas_get(r"/quotes", timeout=8)
+            if r is None:
                 return {"_quota": True}
             items = r.json()
             if items:
@@ -259,9 +253,8 @@ def get_astronomy_fact() -> str:
     if not APININJAS_KEY:
         return ""
     try:
-        r = requests.get("https://api.api-ninjas.com/v1/facts",
-                         headers=_apininjas_headers(), params={"category": "science"}, timeout=10)
-        if _check_quota(r):
+        r = _ninjas_get(r"/facts", params={"category": "science"}, timeout=10)
+        if r is None:
             return QUOTA_MSG
         items = r.json()
         return items[0].get("fact", "") if items else ""
