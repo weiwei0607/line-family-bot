@@ -1287,9 +1287,14 @@ def daily_push():
             timeout=10,
         )
 
-    members = get_members()
-    pts = get_weekly_points()
-    chores = get_chores()
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f_members = ex.submit(get_members)
+        f_pts     = ex.submit(get_weekly_points)
+        f_chores  = ex.submit(get_chores)
+        members = f_members.result()
+        pts     = f_pts.result()
+        chores  = f_chores.result()
     low_pts = [m for m in members if pts.get(m, 0) < POINTS_THRESHOLD]
 
     lines = ["☀️ 早安！家管助理日報\n"]

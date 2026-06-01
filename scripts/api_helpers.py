@@ -337,9 +337,7 @@ def get_anime_quote() -> dict | None:
 def generate_image(prompt: str) -> str | None:
     try:
         encoded = requests.utils.quote(prompt)
-        url = f"https://image.pollinations.ai/prompt/{encoded}?width=512&height=512&nologo=true&seed={random.randint(1,9999)}"
-        r = requests.head(url, timeout=25)
-        return url if r.status_code == 200 else None
+        return f"https://image.pollinations.ai/prompt/{encoded}?width=512&height=512&nologo=true&seed={random.randint(1,9999)}"
     except Exception:
         return None
 

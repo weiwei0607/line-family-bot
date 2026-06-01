@@ -5,9 +5,26 @@ Tabs: 家事清單, 點數記錄, 購物清單, 記帳, 設定
 
 import os
 import json
+import time
 import threading
 from datetime import datetime, timezone, timedelta
 from google.oauth2.credentials import Credentials
+
+# ── 簡易快取（避免每個指令都打 Sheets API）──────
+_sheet_cache: dict[str, tuple] = {}  # key -> (value, timestamp)
+
+def _sc_get(key: str, ttl: int):
+    entry = _sheet_cache.get(key)
+    if entry and time.time() - entry[1] < ttl:
+        return entry[0]
+    return None
+
+def _sc_set(key: str, value):
+    _sheet_cache[key] = (value, time.time())
+
+def _sc_del(*keys):
+    for k in keys:
+        _sheet_cache.pop(k, None)
 from googleapiclient.discovery import build
 
 TW_TZ = timezone(timedelta(hours=8))
@@ -80,8 +97,13 @@ def bg(fn, *args):
 # ──────────────────────────────────────────────
 
 def get_members() -> list[str]:
+    cached = _sc_get("members", 300)  # 5 分鐘快取
+    if cached is not None:
+        return cached
     rows = _read("設定", "A2:A20")
-    return [r[0].strip() for r in rows if r and r[0].strip()]
+    result = [r[0].strip() for r in rows if r and r[0].strip()]
+    _sc_set("members", result)
+    return result
 
 def register_member(user_id: str, name: str):
     """把 LINE user_id 和名字寫進設定 tab，並更新快取"""
@@ -99,9 +121,11 @@ def register_member(user_id: str, name: str):
                 valueInputOption="USER_ENTERED",
                 body={"values": [[name, user_id]]},
             ).execute()
+            _sc_del("members")
             return
     # 沒找到，新增一行
     _append("設定", [name, user_id])
+    _sc_del("members")
 
 
 # ──────────────────────────────────────────────
@@ -109,6 +133,10 @@ def register_member(user_id: str, name: str):
 # ──────────────────────────────────────────────
 
 def get_chores(only_pending=False) -> list[dict]:
+    cache_key = "chores_pending" if only_pending else "chores_all"
+    cached = _sc_get(cache_key, 120)  # 2 分鐘快取
+    if cached is not None:
+        return cached
     rows = _read("家事清單", "A2:F100")
     chores = []
     for i, r in enumerate(rows):
@@ -126,6 +154,7 @@ def get_chores(only_pending=False) -> list[dict]:
         if only_pending and chore["status"] == "已完成":
             continue
         chores.append(chore)
+    _sc_set(cache_key, chores)
     return chores
 
 # 每週點數上限設定（家事名稱 → 每週最多幾點）
@@ -195,11 +224,13 @@ def complete_chore(chore_name: str, member: str) -> dict | None:
             return matched
 
     _append("點數記錄", [_today_str(), member, matched["name"], matched["points"], _now_str()])
+    _sc_del("weekly_points")  # 點數有更新，讓快取失效
     matched["capped"] = False
     return matched
 
 def add_chore(name: str, points: float = 1, category: str = "一般"):
     _append("家事清單", [name, points, category, "待完成", "", ""])
+    _sc_del("chores_all", "chores_pending")
 
 def batch_log_points(member: str, chores: list[tuple[str, float]]):
     """批量記點，一次寫入所有家事"""
@@ -213,6 +244,7 @@ def batch_log_points(member: str, chores: list[tuple[str, float]]):
         valueInputOption="USER_ENTERED",
         body={"values": rows},
     ).execute()
+    _sc_del("weekly_points")
 
 def reset_chore(chore_name: str):
     """重置家事為待完成（每日/每週循環用）"""
@@ -301,6 +333,9 @@ def get_member_weekly_breakdown(member: str) -> list[dict]:
 
 def get_weekly_points() -> dict[str, float]:
     """回傳本週每位成員的累積點數"""
+    cached = _sc_get("weekly_points", 120)  # 2 分鐘快取
+    if cached is not None:
+        return cached
     rows = _read("點數記錄", "A2:D500")
     week_start = _week_start()
     totals: dict[str, float] = {}
@@ -313,6 +348,7 @@ def get_weekly_points() -> dict[str, float]:
                 totals[member] = totals.get(member, 0.0) + float(pts)
             except ValueError:
                 pass
+    _sc_set("weekly_points", totals)
     return totals
 
 def format_weekly_summary() -> str:
