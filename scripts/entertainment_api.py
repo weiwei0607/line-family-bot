@@ -1,3 +1,5 @@
+
+
 """Entertainment Api for line-family-bot."""
 
 import requests
@@ -5,6 +7,9 @@ import os
 from datetime import datetime, timedelta
 import random
 import logging
+__all__ = ['SIGN_MAP', 'generate_image', 'get_advice', 'get_anime_quote', 'get_astronomy_fact', 'get_cat_image', 'get_chuck_norris', 'get_cocktail', 'get_curated_photo', 'get_dog_image', 'get_exercise', 'get_fun_fact', 'get_holidays', 'get_horoscope', 'get_horoscope_round_robin', 'get_joke', 'get_joke_round_robin', 'get_meal_random', 'get_motivation_quote', 'get_movie', 'get_movie_quote', 'get_news_round_robin', 'get_number_fact', 'get_open_trivia', 'get_random_activity', 'get_starmatch', 'get_streaming', 'get_tmdb_movie', 'get_tmdb_streaming_by_title', 'get_trivia', 'get_wikipedia', 'logger', 'make_qr_url', 'search_photo']
+
+
 logger = logging.getLogger(__name__)
 
 from api_helpers import (

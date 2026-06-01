@@ -3,6 +3,9 @@
 import requests
 import os
 import logging
+__all__ = ['get_country_info', 'get_world_time', 'logger', 'search_airports', 'search_hotels']
+
+
 logger = logging.getLogger(__name__)
 
 from api_helpers import (
@@ -12,6 +15,8 @@ _retry_http, call_gemini
 
 def search_hotels(query: str) -> str:
     """搜尋城市飯店"""
+
+
     key = os.environ.get("RAPIDAPI_KEY", "")
     if not key:
         return ""

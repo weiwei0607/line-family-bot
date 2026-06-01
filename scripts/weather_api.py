@@ -3,6 +3,9 @@
 import requests
 from datetime import datetime, timedelta
 import logging
+__all__ = ['WMO', 'format_weather_block', 'format_weather_day', 'format_weather_rain_check', 'get_aqi', 'get_weather', 'get_weather_day', 'get_weather_forecast', 'logger', 'parse_date_offset']
+
+
 logger = logging.getLogger(__name__)
 
 from api_helpers import (
@@ -25,6 +28,8 @@ _WEEKDAY_NAMES = ["一", "二", "三", "四", "五", "六", "日"]
 
 def _get_uv_index() -> dict | None:
     """取得 UV 指數（Open-Meteo）"""
+
+
     try:
         r = requests.get(
             "https://air-quality-api.open-meteo.com/v1/air-quality",
