@@ -580,6 +580,43 @@ _SELF_AREA_KEYWORDS = ["自己", "我的", "房間", "書桌", "書房", "臥室
 _PUBLIC_AREA_KEYWORDS = ["公共", "客廳", "廚房", "玄關", "陽台", "走廊", "餐廳", "浴室", "廁所", "樓梯", "大門"]
 
 
+_TIDY_TAB_ENSURED = False
+
+
+def _ensure_tidy_tab():
+    """確保「收拾紀錄」工作表存在，不存在則自動建立"""
+    global _TIDY_TAB_ENSURED
+    if _TIDY_TAB_ENSURED:
+        return
+    svc = _get_service()
+    sid = _get_sheet_id()
+    meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
+    titles = [s["properties"]["title"] for s in meta.get("sheets", [])]
+    if "收拾紀錄" not in titles:
+        svc.spreadsheets().batchUpdate(
+            spreadsheetId=sid,
+            body={
+                "requests": [
+                    {
+                        "addSheet": {
+                            "properties": {
+                                "title": "收拾紀錄",
+                                "gridProperties": {"rowCount": 1000, "columnCount": 5},
+                            }
+                        }
+                    }
+                ]
+            },
+        ).execute()
+        svc.spreadsheets().values().update(
+            spreadsheetId=sid,
+            range="收拾紀錄!A1:E1",
+            valueInputOption="USER_ENTERED",
+            body={"values": [["日期", "時間", "成員", "區域", "內容"]]},
+        ).execute()
+    _TIDY_TAB_ENSURED = True
+
+
 def _detect_area(text: str) -> str:
     """偵測收拾區域：自己 / 公共 / 未分類"""
     text = text.lower()
@@ -594,6 +631,7 @@ def _detect_area(text: str) -> str:
 
 def add_tidy_log(member: str, area: str, content: str):
     """記錄一次收拾"""
+    _ensure_tidy_tab()
     _append("收拾紀錄", [_today_str(), _now_str(), member, area, content])
 
 
