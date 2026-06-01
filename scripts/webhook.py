@@ -791,9 +791,9 @@ def daily_push():
     if not cron_secret or not token or token != cron_secret:
         abort(403)
 
-    # Idempotency: skip if already ran today
-    from tts_store import cron_is_done, cron_mark_done
-    if cron_is_done("daily_push"):
+    # Idempotency: atomically check-and-set
+    from tts_store import cron_try_mark_done
+    if not cron_try_mark_done("daily_push"):
         return "Already done today", 200
 
     from sheets import get_members, get_chores, get_weekly_points
@@ -848,7 +848,6 @@ def daily_push():
             duration = min(len(greeting) * 300 + 1000, 30000)
             push_messages(group_id, [{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
 
-    cron_mark_done("daily_push")
     return "OK"
 
 
@@ -971,7 +970,7 @@ def handle_audio_message(event: MessageEvent):
 
     # 下載音檔
     try:
-        r = requests.get(audio_url, timeout=15)
+        r = requests.get(audio_url, timeout=15, allow_redirects=False)
         r.raise_for_status()
         audio_bytes = r.content
     except Exception as e:
@@ -1007,10 +1006,6 @@ def handle_audio_message(event: MessageEvent):
         reply(reply_token, "🎤 語音轉文字無法使用，請設定 GROQ_API_KEY 或 GEMINI_API_KEY")
         return
 
-    if not transcript:
-        reply(reply_token, "🎤 聽不清楚，請再說一次")
-        return
-
     # 告訴使用者聽到了什麼
     reply(reply_token, f"🎤 聽到：「{transcript[:80]}{'...' if len(transcript) > 80 else ''}」")
 
@@ -1023,17 +1018,20 @@ def handle_audio_message(event: MessageEvent):
 
 
 # user_id → 成員名對照
+import threading
 _member_cache: dict[str, str] = {}
 _cache_ts: float = 0
+_member_lock = threading.Lock()
 
 def _resolve_member(user_id: str) -> str:
     import time
     global _cache_ts
     now = time.time()
-    if now - _cache_ts > 600:
-        _refresh_member_cache()
-        _cache_ts = now
-    return _member_cache.get(user_id, "")
+    with _member_lock:
+        if now - _cache_ts > 600:
+            _refresh_member_cache()
+            _cache_ts = now
+        return _member_cache.get(user_id, "")
 
 def _refresh_member_cache():
     try:

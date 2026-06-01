@@ -8,7 +8,7 @@ import threading
 import logging
 from datetime import datetime, timedelta
 
-DB_PATH = os.environ.get("TTS_DB_PATH", "/tmp/tts_store.db")
+DB_PATH = os.environ.get("TTS_DB_PATH", "./data/tts_store.db")
 os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
 
 _write_lock = threading.Lock()
@@ -144,6 +144,30 @@ def cron_mark_done(task_name: str, date_str: str | None = None) -> None:
             _maybe_cleanup()
     except sqlite3.Error as exc:
         logging.warning("cron_mark_done error: %s", exc)
+
+
+def cron_try_mark_done(task_name: str, date_str: str | None = None) -> bool:
+    """Atomically check-and-set: returns True only if newly marked for this date."""
+    if date_str is None:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    try:
+        with _write_lock, _conn() as c:
+            row = c.execute(
+                "SELECT 1 FROM cron_log WHERE task_name = ? AND run_date = ?",
+                (task_name, date_str),
+            ).fetchone()
+            if row is not None:
+                return False
+            c.execute(
+                "INSERT INTO cron_log (task_name, run_date) VALUES (?, ?)",
+                (task_name, date_str),
+            )
+            c.commit()
+            _maybe_cleanup()
+            return True
+    except sqlite3.Error as exc:
+        logging.warning("cron_try_mark_done error: %s", exc)
+        return False
 
 
 # ─── Webhook deduplication ────────────────────────────────

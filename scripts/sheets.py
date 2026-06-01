@@ -12,6 +12,7 @@ from google.oauth2.credentials import Credentials
 
 # ── 簡易快取（避免每個指令都打 Sheets API）──────
 _sheet_cache: dict[str, tuple] = {}  # key -> (value, timestamp)
+_SHEET_CACHE_MAX = 100
 
 def _sc_get(key: str, ttl: int):
     entry = _sheet_cache.get(key)
@@ -21,6 +22,8 @@ def _sc_get(key: str, ttl: int):
 
 def _sc_set(key: str, value):
     _sheet_cache[key] = (value, time.time())
+    if len(_sheet_cache) > _SHEET_CACHE_MAX:
+        _sheet_cache.pop(next(iter(_sheet_cache)))
 
 def _sc_del(*keys):
     for k in keys:
@@ -78,6 +81,10 @@ def _retry_gapi(fn, max_retries=3, backoff=2):
             last_exc = e
             if e.resp.status in (400, 404):
                 raise
+            if e.resp.status == 429:
+                import time
+                time.sleep((backoff ** attempt) + 1)  # extra delay for rate limit
+                continue
             if attempt < max_retries - 1:
                 import time
                 time.sleep(backoff ** attempt)
@@ -132,7 +139,12 @@ def _update_cell(tab, cell, value):
         raise
 
 def bg(fn, *args):
-    threading.Thread(target=fn, args=args, daemon=True).start()
+    def _wrapped():
+        try:
+            fn(*args)
+        except Exception:
+            logger.exception("bg task failed: %s", getattr(fn, "__name__", repr(fn)))
+    threading.Thread(target=_wrapped, daemon=True).start()
 
 
 # ──────────────────────────────────────────────
@@ -257,8 +269,19 @@ CHORE_ALIASES: dict[str, str] = {
     "資源垃圾":    "資源回收",
 }
 
+_WEEKLY_POINTS_CACHE: dict[tuple[str, str], tuple[float, float]] = {}
+_WEEKLY_CACHE_TTL = 60.0
+
 def get_member_weekly_chore_points(member: str, chore_name: str) -> float:
-    """查詢本週某成員在某項家事累積的點數"""
+    """查詢本週某成員在某項家事累積的點數（帶 60 秒快取）"""
+    import time
+    key = (member, chore_name)
+    now = time.time()
+    cached = _WEEKLY_POINTS_CACHE.get(key)
+    if cached is not None:
+        value, ts = cached
+        if now - ts < _WEEKLY_CACHE_TTL:
+            return value
     rows = _read("點數記錄", "A2:D500")
     week_start = _week_start()
     total = 0.0
@@ -270,6 +293,7 @@ def get_member_weekly_chore_points(member: str, chore_name: str) -> float:
                 total += float(r[3])
             except ValueError:
                 pass
+    _WEEKLY_POINTS_CACHE[key] = (total, now)
     return total
 
 def find_chore(chore_name: str) -> dict | None:

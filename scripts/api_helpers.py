@@ -80,38 +80,7 @@ def _gemini_key() -> str:
 
 
 # ─── Prompt-injection guard ───────────────────────────────
-
-_INJECTION_PATTERNS = [
-    r"ignore\s+(all\s+)?previous\s+instructions",
-    r"system\s*:\s*",
-    r"you\s+are\s+now\s+",
-    r"new\s+role\s*:\s*",
-    r"<\|system\|>",
-    r"<\|assistant\|>",
-    r"<\|user\|>",
-    r"\{\{.*\}\}",
-    r"\[SYSTEM\s+",
-    r" disregard ",
-]
-_INJECTION_RE = re.compile("|".join(_INJECTION_PATTERNS), re.IGNORECASE)
-_MAX_PROMPT_LEN = 8000
-
-
-def sanitize_input(text: str) -> str:
-    """Strip control chars and flag obvious prompt-injection fragments."""
-    if not isinstance(text, str):
-        text = str(text)
-    # Remove null bytes and most control chars (keep \n, \r, \t)
-    text = "".join(
-        ch for ch in text
-        if ch == "\n" or ch == "\r" or ch == "\t" or (32 <= ord(ch) < 127) or ord(ch) > 127
-    )
-    # Truncate
-    if len(text) > _MAX_PROMPT_LEN:
-        text = text[:_MAX_PROMPT_LEN] + "\n...[truncated]"
-    # Escape injection markers by breaking the pattern
-    text = _INJECTION_RE.sub(lambda m: "🚫" + m.group(0)[1:], text)
-    return text
+from shared.security import sanitize_input
 
 
 def call_groq(prompt: str) -> str:
@@ -175,6 +144,7 @@ def call_gemini(prompt: str) -> str:
             )
             if resp.status_code == 429:
                 return call_groq(prompt)
+            resp.raise_for_status()
             return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
         except Exception:
             if attempt == 2:
@@ -187,14 +157,18 @@ def call_gemini(prompt: str) -> str:
 # ── 快取機制（天氣 30 分鐘、星座 6 小時、新聞 1 小時）──
 
 _cache: dict[str, tuple] = {}  # key -> (value, timestamp)
+_CACHE_MAX = 200
 
 def _cached(key: str, ttl: int, fn: Callable):
+    now = time.time()
     entry = _cache.get(key)
-    if entry and time.time() - entry[1] < ttl:
+    if entry and now - entry[1] < ttl:
         return entry[0]
     result = fn()
     if result:
-        _cache[key] = (result, time.time())
+        _cache[key] = (result, now)
+        if len(_cache) > _CACHE_MAX:
+            _cache.pop(next(iter(_cache)))
     return result
 
 
