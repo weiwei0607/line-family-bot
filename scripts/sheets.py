@@ -40,15 +40,20 @@ def _week_start():
     d = datetime.now(TW_TZ).date()
     return (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
 
+_SHEETS_SERVICE = None
+
 def _get_service():
+    global _SHEETS_SERVICE
+    if _SHEETS_SERVICE is not None:
+        return _SHEETS_SERVICE
     creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
     if creds_json:
         info = json.loads(creds_json)
     else:
         info = {
-            "client_id": os.environ["GOOGLE_CLIENT_ID"],
-            "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
-            "refresh_token": os.environ["GOOGLE_REFRESH_TOKEN"],
+            "client_id": os.environ.get("GOOGLE_CLIENT_ID", ""),
+            "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", ""),
+            "refresh_token": os.environ.get("GOOGLE_REFRESH_TOKEN", ""),
             "token_uri": "https://oauth2.googleapis.com/token",
         }
     creds = Credentials(
@@ -58,7 +63,8 @@ def _get_service():
         client_id=info["client_id"],
         client_secret=info["client_secret"],
     )
-    return build("sheets", "v4", credentials=creds, cache_discovery=False)
+    _SHEETS_SERVICE = build("sheets", "v4", credentials=creds, cache_discovery=False)
+    return _SHEETS_SERVICE
 
 def _get_sheet_id():
     return os.environ["FAMILY_SHEET_ID"]

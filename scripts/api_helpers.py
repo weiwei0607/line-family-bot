@@ -9,7 +9,6 @@ import html as _html
 import random
 import time
 
-RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "")
 import io
 import requests
 from datetime import datetime, timedelta
@@ -379,105 +378,7 @@ def get_fun_fact() -> str:
         return ""
 
 
-# ── 星座運勢輔助 ─────────────────────────────────
-
-_RASHI_MAP = {
-    "aries": "mesha", "taurus": "vrsabha", "gemini": "mithuna",
-    "cancer": "karka", "leo": "simha", "virgo": "kanya",
-    "libra": "tula", "scorpio": "vrschika", "sagittarius": "dhanu",
-    "capricorn": "makara", "aquarius": "kumbha", "pisces": "mina",
-}
-
-def _get_horoscope_advanced(sign_en: str, sign_zh: str) -> dict | None:
-    try:
-        if not RAPIDAPI_KEY:
-            return None
-        r = requests.get(
-            "https://daily-horoscope-advanced-api.p.rapidapi.com/api/Daily-Horoscope-New/",
-            headers={"x-rapidapi-host": "daily-horoscope-advanced-api.p.rapidapi.com", "x-rapidapi-key": RAPIDAPI_KEY},
-            params={"zodiacSign": sign_en.capitalize(), "timePeriod": "today"},
-            timeout=10,
-        )
-        if r.status_code == 200:
-            d = r.json()
-            return {
-                "sign": sign_zh + "座",
-                "description": d.get("prediction", ""),
-                "mood": "—", "color": "—", "lucky_number": "—", "compatibility": "—",
-                "source": "Daily Horoscope Advanced",
-            }
-    except Exception:
-        pass
-    return None
-
-def _get_horoscope_basic(sign_en: str, sign_zh: str) -> dict | None:
-    try:
-        if not RAPIDAPI_KEY:
-            return None
-        r = requests.get(
-            "https://daily-horoscope-api.p.rapidapi.com/api/Daily-Horoscope-English/",
-            headers={"x-rapidapi-host": "daily-horoscope-api.p.rapidapi.com", "x-rapidapi-key": RAPIDAPI_KEY},
-            params={"zodiacSign": sign_en.capitalize(), "timePeriod": "today"},
-            timeout=10,
-        )
-        if r.status_code == 200:
-            d = r.json()
-            return {
-                "sign": sign_zh + "座",
-                "description": d.get("prediction", ""),
-                "mood": "—",
-                "color": d.get("color", "—").split(",")[0].strip() if d.get("color") else "—",
-                "lucky_number": d.get("number", "—").split(",")[0].strip() if d.get("number") else "—",
-                "compatibility": "—",
-                "source": "Daily Horoscope Basic",
-            }
-    except Exception:
-        pass
-    return None
-
-def _get_horoscope_rashifal(sign_en: str, sign_zh: str) -> dict | None:
-    try:
-        if not RAPIDAPI_KEY:
-            return None
-        rashi = _RASHI_MAP.get(sign_en)
-        if not rashi:
-            return None
-        r = requests.get(
-            "https://zodiac-horoscope-api-rashifal.p.rapidapi.com/astro/rashi/daily",
-            headers={"x-rapidapi-host": "zodiac-horoscope-api-rashifal.p.rapidapi.com", "x-rapidapi-key": RAPIDAPI_KEY},
-            params={"rashi": rashi, "day": "today", "lang": "en"},
-            timeout=10,
-        )
-        if r.status_code == 200:
-            d = r.json()
-            return {
-                "sign": sign_zh + "座",
-                "description": d.get("desc", ""),
-                "mood": "—", "color": "—", "lucky_number": "—", "compatibility": "—",
-                "source": "Rashifal",
-            }
-    except Exception:
-        pass
-    return None
-
-def _get_horoscope_aztro(sign_en: str, sign_zh: str) -> dict | None:
-    try:
-        r = requests.post(
-            f"https://aztro.sameerkumar.website/?sign={sign_en}&day=today",
-            timeout=10,
-        )
-        d = r.json()
-        return {
-            "sign": sign_zh + "座",
-            "description": d.get("description", ""),
-            "mood": d.get("mood", ""),
-            "color": d.get("color", ""),
-            "lucky_number": d.get("lucky_number", ""),
-            "compatibility": d.get("compatibility", ""),
-            "source": "Aztro",
-        }
-    except Exception:
-        return None
+# ── 星座運勢（Aztro 免費，快取 6 小時）──────────────
 
 def get_horoscope(sign_zh: str) -> dict | None:
     sign_zh = sign_zh.replace("座", "").strip()
@@ -485,12 +386,22 @@ def get_horoscope(sign_zh: str) -> dict | None:
     if not sign_en:
         return None
     def _fetch():
-        return (
-            _get_horoscope_advanced(sign_en, sign_zh)
-            or _get_horoscope_basic(sign_en, sign_zh)
-            or _get_horoscope_rashifal(sign_en, sign_zh)
-            or _get_horoscope_aztro(sign_en, sign_zh)
-        )
+        try:
+            r = requests.post(
+                f"https://aztro.sameerkumar.website/?sign={sign_en}&day=today",
+                timeout=10,
+            )
+            d = r.json()
+            return {
+                "sign": sign_zh + "座",
+                "description": d.get("description", ""),
+                "mood": d.get("mood", ""),
+                "color": d.get("color", ""),
+                "lucky_number": d.get("lucky_number", ""),
+                "compatibility": d.get("compatibility", ""),
+            }
+        except Exception:
+            return None
     return _cached(f"horoscope_{sign_en}", 21600, _fetch)
 
 
@@ -1178,34 +1089,13 @@ def _get_jokeapi_dev() -> str | None:
         return None
 
 
-def _get_world_of_jokes() -> str | None:
-    """World Of Jokes (RapidAPI)"""
-    try:
-        r = requests.get(
-            "https://world-of-jokes1.p.rapidapi.com/v1/jokes/random-joke",
-            headers={"x-rapidapi-key": os.environ.get("RAPIDAPI_KEY", ""), "x-rapidapi-host": "world-of-jokes1.p.rapidapi.com"},
-            timeout=8,
-        )
-        if r.status_code == 200:
-            d = r.json()
-            body = d.get("body", "")
-            title = d.get("title", "")
-            if title and body:
-                return f"{title}\n\n{body}"
-            return body or title or ""
-    except Exception:
-        pass
-    return None
-
-
 def get_joke_round_robin() -> str:
     result = _fallback_call(
         lambda: get_joke(),
         _get_jokeapi_dev,
-        _get_world_of_jokes,
         lambda: get_chuck_norris(),
     )
-    return result or "今天笑話庫休息，請自行搞笑 😅"
+    return result or call_groq("說一個適合全家的台灣笑話，繁體中文") or "今天笑話庫休息，請自行搞笑 😅"
 
 
 # ── Rewriter（RapidAPI）─────────────────────────────
@@ -1397,9 +1287,15 @@ os.makedirs(_TTS_DIR, exist_ok=True)
 
 def save_tts_audio(audio_bytes: bytes, mime_type: str = "audio/mpeg") -> str:
     fname = f"tts_{int(time.time()*1000)}.m4a"
+    # Save to filesystem (fast serve) AND SQLite (survives restarts)
     with open(os.path.join(_TTS_DIR, fname), "wb") as f:
         f.write(audio_bytes)
-    # 只保留最新 50 個，清掉舊的
+    try:
+        from tts_store import save_tts_audio as _db_save
+        _db_save(fname, audio_bytes, mime_type)
+    except Exception:
+        pass
+    # 只保留最新 50 個檔案
     files = sorted(
         [fn for fn in os.listdir(_TTS_DIR) if fn.startswith("tts_")],
         key=lambda fn: os.path.getmtime(os.path.join(_TTS_DIR, fn)),
@@ -1412,8 +1308,17 @@ def save_tts_audio(audio_bytes: bytes, mime_type: str = "audio/mpeg") -> str:
     return fname
 
 def get_tts_audio(filename: str) -> tuple[bytes, str] | None:
+    # 1) Try filesystem first (fastest)
     path = os.path.join(_TTS_DIR, filename)
     if os.path.exists(path):
         with open(path, "rb") as f:
             return f.read(), "audio/mpeg"
+    # 2) Fallback to SQLite (survives Render restarts)
+    try:
+        from tts_store import get_tts_audio as _db_get
+        data = _db_get(filename)
+        if data:
+            return data
+    except Exception:
+        pass
     return None

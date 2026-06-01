@@ -89,6 +89,9 @@ _HELP_TEXT_CACHE: str | None = None  # 指令清單快取
 
 @app.route("/tts/<filename>")
 def serve_tts(filename: str):
+    import re
+    if not re.match(r'^tts_\d+\.m4a$', filename):
+        abort(400)
     data = get_tts_audio(filename)
     if not data:
         abort(404)
@@ -1331,9 +1334,7 @@ def daily_push():
     """早安推播（含 TTS），由 GitHub Actions 每天呼叫"""
     cron_secret = os.environ.get("CRON_SECRET", "")
     token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
-    # 優先使用獨立的 CRON_SECRET；若未設定，暫時 fallback 到舊的 LINE token（相容期）
-    expected = cron_secret if cron_secret else _token
-    if not expected or not token or token != expected:
+    if not cron_secret or not token or token != cron_secret:
         abort(403)
 
     from sheets import get_members, get_chores, get_weekly_points
@@ -1448,10 +1449,16 @@ def handle_message(event: MessageEvent):
     text = event.message.text.strip()
     reply_token = event.reply_token
 
-    member = ""
+    user_id = ""
     if hasattr(event, "source") and hasattr(event.source, "user_id"):
-        member = _resolve_member(event.source.user_id)
+        user_id = event.source.user_id
 
+    # Rate limiting (30 requests / 60s per user)
+    if user_id and not rate_limit_check(user_id, max_requests=30, window_seconds=60):
+        reply(reply_token, "⏳ 你發太快了，請稍後再試 👋")
+        return
+
+    member = _resolve_member(user_id) if user_id else ""
     _process_text_message(reply_token, text, event.source, member)
 
 
@@ -1464,6 +1471,13 @@ def handle_audio_message(event: MessageEvent):
         return
 
     reply_token = event.reply_token
+    user_id = getattr(event.source, "user_id", "")
+
+    # Rate limiting for audio (10 / 60s)
+    if user_id and not rate_limit_check(user_id, max_requests=10, window_seconds=60):
+        reply(reply_token, "⏳ 語音發太快了，請稍後再試 👋")
+        return
+
     audio = event.message
 
     # 取得音檔 URL
@@ -1556,7 +1570,7 @@ def _refresh_member_cache():
         pass
 
 
-from utils import send_telegram_alert
+from utils import send_telegram_alert, rate_limit_check
 
 @app.errorhandler(Exception)
 def _handle_error(e):

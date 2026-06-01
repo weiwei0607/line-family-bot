@@ -4,9 +4,17 @@ LINE Family Bot — Centralized configuration.
 
 import os
 
-LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
-LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 LINE_GROUP_ID = os.environ.get("LINE_GROUP_ID", "")
+
+# Validate required env vars at startup
+_MISSING = [k for k, v in {
+    "LINE_CHANNEL_ACCESS_TOKEN": LINE_CHANNEL_ACCESS_TOKEN,
+    "LINE_CHANNEL_SECRET": LINE_CHANNEL_SECRET,
+}.items() if not v]
+if _MISSING:
+    raise RuntimeError(f"Missing required env vars: {', '.join(_MISSING)}")
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
