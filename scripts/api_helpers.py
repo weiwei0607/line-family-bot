@@ -23,6 +23,8 @@ APININJAS_KEY = os.environ.get("APININJAS_KEY", "")
 NASA_KEY = os.environ.get("NASA_API_KEY", "")
 TMDB_KEY = os.environ.get("TMDB_API_KEY", "")
 ALPHA_VANTAGE_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")
+PEXELS_KEY = os.environ.get("PEXELS_KEY", "")
+NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY", "")
 
 QUOTA_MSG = "❌ 今日 API 額度用完了，明天再試試！"
 
@@ -1327,28 +1329,95 @@ def get_starmatch(sign1: str, sign2: str) -> dict | None:
     }
 
 
-# ── 新聞（Google News RSS，免費無需 key，快取 1 小時）
+# ── 圖片搜尋（Pexels，200 req/hour）────────────
+
+def search_photo(query: str) -> str | None:
+    if not PEXELS_KEY:
+        return None
+    try:
+        r = requests.get(
+            "https://api.pexels.com/v1/search",
+            headers={"Authorization": PEXELS_KEY},
+            params={"query": query, "per_page": 5, "orientation": "landscape"},
+            timeout=10,
+        )
+        photos = r.json().get("photos", [])
+        if photos:
+            photo = random.choice(photos[:5])
+            return photo["src"].get("large2x") or photo["src"].get("large")
+    except Exception as e:
+        logger.warning("[pexels] %s", e)
+    return None
+
+
+def get_curated_photo() -> str | None:
+    if not PEXELS_KEY:
+        return None
+    def _fetch():
+        try:
+            r = requests.get(
+                "https://api.pexels.com/v1/curated",
+                headers={"Authorization": PEXELS_KEY},
+                params={"per_page": 10},
+                timeout=10,
+            )
+            photos = r.json().get("photos", [])
+            if photos:
+                photo = random.choice(photos)
+                return photo["src"].get("large2x") or photo["src"].get("large")
+        except Exception as e:
+            logger.warning("[pexels curated] %s", e)
+        return None
+    return _cached("pexels_curated", 3600, _fetch)
+
+
+# ── 新聞（NewsAPI 優先，fallback Google RSS，快取 1 小時）
+
+def _get_news_newsapi() -> list[dict] | None:
+    if not NEWSAPI_KEY:
+        return None
+    try:
+        r = requests.get(
+            "https://newsapi.org/v2/top-headlines",
+            params={"country": "tw", "pageSize": 5, "apiKey": NEWSAPI_KEY},
+            timeout=10,
+        )
+        articles = r.json().get("articles", [])
+        if not articles:
+            return None
+        return [
+            {"title": a.get("title", ""), "url": a.get("url", ""), "desc": a.get("description", "")}
+            for a in articles if a.get("title")
+        ]
+    except Exception as e:
+        logger.warning("[newsapi] %s", e)
+    return None
+
+
+def _get_news_rss() -> list[dict] | None:
+    try:
+        import xml.etree.ElementTree as ET
+        r = requests.get(
+            "https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        root = ET.fromstring(r.content)
+        items = root.findall(".//item")[:5]
+        news = []
+        for item in items:
+            title = item.findtext("title", "")
+            if " - " in title:
+                title = title.rsplit(" - ", 1)[0]
+            news.append({"title": title, "url": item.findtext("link", ""), "desc": ""})
+        return news or None
+    except Exception:
+        return None
+
 
 def get_news_round_robin() -> list[dict]:
     def _fetch():
-        try:
-            import xml.etree.ElementTree as ET
-            r = requests.get(
-                "https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=10,
-            )
-            root = ET.fromstring(r.content)
-            items = root.findall(".//item")[:5]
-            news = []
-            for item in items:
-                title = item.findtext("title", "")
-                if " - " in title:
-                    title = title.rsplit(" - ", 1)[0]
-                news.append({"title": title, "url": item.findtext("link", ""), "desc": ""})
-            return news or None
-        except Exception:
-            return None
+        return _get_news_newsapi() or _get_news_rss()
     return _cached("news", 3600, _fetch) or []
 
 

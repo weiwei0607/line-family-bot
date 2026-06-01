@@ -38,6 +38,7 @@ from api_helpers import (
     get_spanish_dict, get_meal_random, get_open_trivia, get_number_fact,
     get_nasa_apod, translate_text, smart_translate, text_to_speech, save_tts_audio, get_tts_audio,
     get_joke_round_robin, get_horoscope_round_robin, get_news_round_robin,
+    search_photo, get_curated_photo,
     get_starmatch, call_groq, groq_stt,
     rewrite_text, check_grammar, search_hotels, search_airports,
     get_aqi, SIGN_MAP,
@@ -699,6 +700,25 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             reply_image(reply_token, url)
         else:
             reply(reply_token, "🎨 圖片生成失敗，請再試一次")
+        return True
+
+    # ── 找圖（Pexels）──
+    m = re.match(r"^找圖\s+(.+)$", text)
+    if m:
+        query = m.group(1).strip()
+        url = search_photo(query)
+        if url:
+            reply_image(reply_token, url)
+        else:
+            reply(reply_token, f"找不到「{query}」的圖片，試試其他關鍵字")
+        return True
+
+    if text in ["隨機圖片", "來張圖"]:
+        url = get_curated_photo()
+        if url:
+            reply_image(reply_token, url)
+        else:
+            reply(reply_token, "圖片載入失敗，待會再試")
         return True
 
     # ── 匯率 ──
