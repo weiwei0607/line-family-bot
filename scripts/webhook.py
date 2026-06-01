@@ -1235,7 +1235,7 @@ def health():
 def daily_push():
     """早安推播（含 TTS），由 GitHub Actions 每天呼叫"""
     token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
-    if token != os.environ.get("DAILY_PUSH_TOKEN", ""):
+    if token != _secret:  # 用現有的 LINE_CHANNEL_SECRET 驗證
         abort(403)
 
     from sheets import get_members, get_chores, get_weekly_points
