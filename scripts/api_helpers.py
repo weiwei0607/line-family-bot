@@ -317,24 +317,8 @@ def get_anime_quote() -> dict | None:
 # ── AI 圖片生成（Flux Free）──────────────────────
 
 def generate_image(prompt: str) -> str | None:
-    if not RAPIDAPI_KEY:
-        return None
-    try:
-        r = requests.post(
-            "https://ai-text-to-image-generator-flux-free-api.p.rapidapi.com/aaaaaaa",
-            headers={
-                **_rapidapi_headers("ai-text-to-image-generator-flux-free-api.p.rapidapi.com"),
-                "Content-Type": "application/json",
-            },
-            json={"prompt": prompt, "width": 512, "height": 512},
-            timeout=30,
-        )
-        if _check_quota(r): return QUOTA_MSG
-        d = r.json()
-        return (d.get("url") or d.get("imageUrl") or d.get("image_url")
-                or d.get("output") or (d.get("images") or [None])[0])
-    except Exception:
-        return None
+    """AI Image Generator - API 已下架，暫時停用"""
+    return None
 
 
 # ── 匯率（Currency Conversion）──────────────────

@@ -18,7 +18,7 @@ from api_helpers import (
     format_weather_block, get_advice, get_horoscope, get_fun_fact,
     search_recipes_by_ingredients, get_nutrition, get_movie_by_genre,
     get_joke, get_trivia, get_cocktail, get_random_activity,
-    get_exercise, get_anime_quote, generate_image,
+    get_exercise, get_anime_quote,
     get_currency, get_gold_price, get_movie, get_streaming, calc_bmi,
     get_chuck_norris, get_motivation_quote, get_movie_quote,
     get_astronomy_fact, get_calories_burned,
