@@ -1173,13 +1173,147 @@ def _get_jokeapi_dev() -> str | None:
     except Exception:
         return None
 
+
+def _get_world_of_jokes() -> str | None:
+    """World Of Jokes (RapidAPI)"""
+    try:
+        r = requests.get(
+            "https://world-of-jokes1.p.rapidapi.com/v1/jokes/random-joke",
+            headers={"x-rapidapi-key": os.environ.get("RAPIDAPI_KEY", ""), "x-rapidapi-host": "world-of-jokes1.p.rapidapi.com"},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            d = r.json()
+            body = d.get("body", "")
+            title = d.get("title", "")
+            if title and body:
+                return f"{title}\n\n{body}"
+            return body or title or ""
+    except Exception:
+        pass
+    return None
+
+
 def get_joke_round_robin() -> str:
     result = _fallback_call(
         lambda: get_joke(),
         _get_jokeapi_dev,
+        _get_world_of_jokes,
         lambda: get_chuck_norris(),
     )
     return result or "今天笑話庫休息，請自行搞笑 😅"
+
+
+# ── Rewriter（RapidAPI）─────────────────────────────
+
+def rewrite_text(text: str, strength: int = 3) -> str:
+    """改寫/潤稿文字"""
+    key = os.environ.get("RAPIDAPI_KEY", "")
+    if not key:
+        return ""
+    try:
+        r = requests.post(
+            "https://rewriter-paraphraser-text-changer-multi-language.p.rapidapi.com/rewrite",
+            headers={"x-rapidapi-key": key, "x-rapidapi-host": "rewriter-paraphraser-text-changer-multi-language.p.rapidapi.com", "Content-Type": "application/json"},
+            json={"language": "zh-tw", "strength": strength, "text": text},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            return r.json().get("rewrite", "")
+    except Exception:
+        pass
+    return ""
+
+
+# ── TextGears 英文文法檢查（RapidAPI）─────────────
+
+def check_grammar(text: str) -> dict | None:
+    """檢查英文文法，回傳 {corrected, errors}"""
+    key = os.environ.get("RAPIDAPI_KEY", "")
+    if not key:
+        return None
+    try:
+        r = requests.post(
+            "https://textgears-textgears-v1.p.rapidapi.com/correct",
+            headers={"x-rapidapi-key": key, "x-rapidapi-host": "textgears-textgears-v1.p.rapidapi.com", "Content-Type": "application/x-www-form-urlencoded"},
+            data=f"text={requests.utils.quote(text)}&language=en-US",
+            timeout=10,
+        )
+        if r.status_code == 200:
+            d = r.json()
+            if d.get("status"):
+                resp = d.get("response", {})
+                corrected = resp.get("corrected", "")
+                errors = resp.get("errors", [])
+                return {"corrected": corrected, "errors": errors, "original": text}
+    except Exception:
+        pass
+    return None
+
+
+# ── Hotels Com 找飯店（RapidAPI）───────────────────
+
+def search_hotels(query: str) -> str:
+    """搜尋城市飯店"""
+    key = os.environ.get("RAPIDAPI_KEY", "")
+    if not key:
+        return ""
+    try:
+        r = requests.get(
+            "https://hotels-com-provider.p.rapidapi.com/v2/regions",
+            headers={"x-rapidapi-key": key, "x-rapidapi-host": "hotels-com-provider.p.rapidapi.com"},
+            params={"query": query, "locale": "zh_TW", "domain": "TW"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            d = r.json()
+            items = d.get("data", [])[:5]
+            if not items:
+                return f"找不到「{query}」的飯店資訊"
+            lines = [f"🏨 「{query}」搜尋結果：\n"]
+            for item in items:
+                names = item.get("regionNames", {})
+                full = names.get("fullName", "")
+                short = names.get("shortName", "")
+                t = item.get("type", "")
+                lines.append(f"• {short or full} ({t})")
+            return "\n".join(lines)
+    except Exception as e:
+        print(f"[hotels] {e}")
+    return ""
+
+
+# ── World Airports 找機場（RapidAPI）───────────────
+
+def search_airports(query: str) -> str:
+    """搜尋機場"""
+    key = os.environ.get("RAPIDAPI_KEY", "")
+    if not key:
+        return ""
+    try:
+        r = requests.post(
+            "https://airports.p.rapidapi.com/v1/airports",
+            headers={"x-rapidapi-key": key, "x-rapidapi-host": "airports.p.rapidapi.com", "Content-Type": "application/json"},
+            json={"search": query},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            items = r.json()[:5]
+            if not items:
+                return f"找不到「{query}」的機場"
+            lines = [f"✈️ 「{query}」機場搜尋結果：\n"]
+            for item in items:
+                name = item.get("name", "")
+                iata = item.get("iata", "")
+                icao = item.get("icao", "")
+                city = item.get("city", "")
+                country = item.get("country_name", "")
+                code_str = f" ({iata}/{icao})" if iata or icao else ""
+                lines.append(f"• {name}{code_str} — {city}, {country}")
+            return "\n".join(lines)
+    except Exception as e:
+        print(f"[airports] {e}")
+    return ""
 
 
 # ── 星座輪班（Aztro → Gemini，快取 6 小時）──────

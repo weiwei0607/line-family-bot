@@ -559,3 +559,134 @@ def get_expenses(days: int = 7) -> list[dict]:
                 "by": r[4] if len(r) > 4 else "",
             })
     return result
+
+
+# ──────────────────────────────────────────────
+# 收拾紀錄 Tab: [日期, 時間, 成員, 區域(自己/公共), 內容]
+# ──────────────────────────────────────────────
+
+_SELF_AREA_KEYWORDS = ["自己", "我的", "房間", "書桌", "書房", "臥室", "房間", "衣櫃", "抽屜", "床鋪", "床邊"]
+_PUBLIC_AREA_KEYWORDS = ["公共", "客廳", "廚房", "玄關", "陽台", "走廊", "餐廳", "浴室", "廁所", "樓梯", "大門"]
+
+
+def _detect_area(text: str) -> str:
+    """偵測收拾區域：自己 / 公共 / 未分類"""
+    text = text.lower()
+    for k in _SELF_AREA_KEYWORDS:
+        if k in text:
+            return "自己"
+    for k in _PUBLIC_AREA_KEYWORDS:
+        if k in text:
+            return "公共"
+    return "未分類"
+
+
+def add_tidy_log(member: str, area: str, content: str):
+    """記錄一次收拾"""
+    _append("收拾紀錄", [_today_str(), _now_str(), member, area, content])
+
+
+def get_today_tidy_logs() -> dict[str, list[dict]]:
+    """回傳今天全家的收拾記錄，按成員分組"""
+    rows = _read("收拾紀錄", "A2:E1000")
+    today = _today_str()
+    result: dict[str, list[dict]] = {}
+    for r in rows:
+        if not r or len(r) < 5:
+            continue
+        if r[0] != today:
+            continue
+        member = r[2] if len(r) > 2 else ""
+        entry = {
+            "time": r[1] if len(r) > 1 else "",
+            "area": r[3] if len(r) > 3 else "",
+            "content": r[4] if len(r) > 4 else "",
+        }
+        result.setdefault(member, []).append(entry)
+    return result
+
+
+def get_tidy_logs(days: int = 7) -> dict[str, dict[str, list[dict]]]:
+    """回傳最近 N 天每天的收拾記錄，按日期→成員分組"""
+    rows = _read("收拾紀錄", "A2:E1000")
+    cutoff = (datetime.now(TW_TZ) - timedelta(days=days)).strftime("%Y-%m-%d")
+    result: dict[str, dict[str, list[dict]]] = {}
+    for r in rows:
+        if not r or len(r) < 5:
+            continue
+        date = r[0]
+        if date < cutoff:
+            continue
+        member = r[2] if len(r) > 2 else ""
+        entry = {
+            "time": r[1] if len(r) > 1 else "",
+            "area": r[3] if len(r) > 3 else "",
+            "content": r[4] if len(r) > 4 else "",
+        }
+        result.setdefault(date, {}).setdefault(member, []).append(entry)
+    return result
+
+
+def get_tidy_debt(days: int = 7) -> dict[str, dict[str, int]]:
+    """回傳每人最近 N 天欠收拾次數：{成員: {"自己": n, "公共": n}}"""
+    logs = get_tidy_logs(days)
+    members = ["爸爸", "媽媽", "姊姊", "妹妹"]
+    debt = {m: {"自己": 0, "公共": 0} for m in members}
+    today = datetime.now(TW_TZ).date()
+    for offset in range(days):
+        date = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
+        day_logs = logs.get(date, {})
+        for m in members:
+            entries = day_logs.get(m, [])
+            has_self = any(e["area"] == "自己" for e in entries)
+            has_pub = any(e["area"] == "公共" for e in entries)
+            if not has_self:
+                debt[m]["自己"] += 1
+            if not has_pub:
+                debt[m]["公共"] += 1
+    return debt
+
+
+def format_tidy_summary() -> str:
+    """格式化今天全家收拾紀錄 + 欠次提示"""
+    logs = get_today_tidy_logs()
+    debt = get_tidy_debt(7)
+    lines = []
+    if not logs:
+        lines.append("今天還沒有人報備收拾紀錄喔！\n")
+    else:
+        lines.append("🧹 今天全家收拾紀錄\n")
+        for member in ["爸爸", "媽媽", "姊姊", "妹妹"]:
+            if member not in logs:
+                continue
+            entries = logs[member]
+            self_count = sum(1 for e in entries if e["area"] == "自己")
+            pub_count = sum(1 for e in entries if e["area"] == "公共")
+            other_count = len(entries) - self_count - pub_count
+            badge = []
+            if self_count:
+                badge.append(f"自己×{self_count}")
+            if pub_count:
+                badge.append(f"公共×{pub_count}")
+            if other_count:
+                badge.append(f"其他×{other_count}")
+            lines.append(f"【{member}】{' / '.join(badge) if badge else '無紀錄'}")
+            for e in entries:
+                area_emoji = "🏠" if e["area"] == "自己" else "🛋" if e["area"] == "公共" else "📦"
+                lines.append(f"  {area_emoji} {e['content']}")
+            lines.append("")
+    # 欠次提示
+    lines.append("\n📊 本週欠收拾統計（自己10分鐘+公共10分鐘）")
+    for member in ["爸爸", "媽媽", "姊姊", "妹妹"]:
+        d = debt.get(member, {"自己": 0, "公共": 0})
+        if d["自己"] == 0 and d["公共"] == 0:
+            lines.append(f"✅ {member}：本週全勤！")
+        else:
+            parts = []
+            if d["自己"]:
+                parts.append(f"自己欠{d['自己']}天")
+            if d["公共"]:
+                parts.append(f"公共欠{d['公共']}天")
+            lines.append(f"⚠️ {member}：{' / '.join(parts)}")
+    lines.append("\n傳「收拾 [內容]」來記錄，例如：\n• 收拾 收了自己的書桌\n• 收拾 公共區域掃地")
+    return "\n".join(lines)

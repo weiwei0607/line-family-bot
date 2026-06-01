@@ -29,6 +29,7 @@ from api_helpers import (
     get_nasa_apod, translate_text, smart_translate, text_to_speech, save_tts_audio, get_tts_audio,
     get_joke_round_robin, get_horoscope_round_robin, get_news_round_robin,
     get_starmatch, call_groq, groq_stt,
+    rewrite_text, check_grammar, search_hotels, search_airports,
     JLPT_N5_KANJI, QUOTA_MSG, TMDB_KEY,
 )
 
@@ -41,6 +42,7 @@ from sheets import (
     add_declutter, get_declutter_list, complete_declutter,
     add_income, get_declutter_income, cancel_last_record,
     pay_fine, get_outstanding_fines,
+    add_tidy_log, format_tidy_summary, _detect_area,
 )
 
 app = Flask(__name__)
@@ -494,6 +496,41 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
                 reply(reply_token, f"🌡 {desc}天氣\n\n{weather_text}")
         else:
             reply(reply_token, "🌡 今日天氣\n\n" + format_weather_block())
+        return True
+
+    # ── 收拾紀錄 ──
+    if text in ["收拾", "整理"]:
+        reply(reply_token, format_tidy_summary())
+        return True
+
+    m_tidy = re.match(r"^(收拾|整理)\s*(.+)", text)
+    if m_tidy:
+        content = m_tidy.group(2).strip()
+        # 嘗試解析區域
+        area = _detect_area(content)
+        # 如果沒偵測到區域，看文字開頭是否標註
+        if area == "未分類":
+            if content.startswith("自己 ") or content.startswith("我的 "):
+                area = "自己"
+                content = content[3:].strip()
+            elif content.startswith("公共 ") or content.startswith("公用 "):
+                area = "公共"
+                content = content[3:].strip()
+        # 嘗試從發送者身份取得成員名稱
+        member = ""
+        try:
+            with ApiClient(configuration) as api_client:
+                profile = MessagingApi(api_client).get_profile(getattr(source, "user_id", ""))
+                member = profile.display_name
+        except Exception:
+            pass
+        # fallback 用已知暱稱對照
+        if not member or member not in ["爸爸", "媽媽", "姊姊", "妹妹"]:
+            # 嘗試從 text 推測（不太可靠，先標註未知）
+            member = "家人"
+        add_tidy_log(member, area, content)
+        area_emoji = "🏠" if area == "自己" else "🛋" if area == "公共" else "📦"
+        reply(reply_token, f"✅ 已記錄！\n{area_emoji} {member} → {content}（{area}區域）\n\n傳「收拾」查看今天全家紀錄")
         return True
 
     # ── 今天吃什麼 ──
@@ -1257,6 +1294,8 @@ def handle_help(reply_token: str, text: str):
 【生活小工具】
 • 天氣 — 今日天氣 + 空氣品質
 • [日期]天氣 / [日期]會下雨嗎 — 支援「今天/明天/後天/星期三/下週五」等
+• 收拾 — 全家收拾紀錄 + 欠次統計
+• 收拾 [內容] — 報備自己/公共區域收拾
 • 今天吃什麼 — 隨機世界料理食譜
 • [星座]運勢 — 例：天蠍座運勢
 • 今日全員運勢 — 全家人運勢一次看
