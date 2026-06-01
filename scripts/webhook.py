@@ -1230,6 +1230,72 @@ def handle_help(reply_token: str, text: str):
 def health():
     return "OK", 200
 
+
+@app.route("/daily_push", methods=["POST"])
+def daily_push():
+    """早安推播（含 TTS），由 GitHub Actions 每天呼叫"""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    if token != os.environ.get("DAILY_PUSH_TOKEN", ""):
+        abort(403)
+
+    from sheets import get_members, get_chores, get_weekly_points
+    from api_helpers import format_weather_block
+
+    group_id = os.environ.get("LINE_GROUP_ID", "")
+    if not group_id:
+        return "LINE_GROUP_ID not set", 500
+
+    def _push(messages: list):
+        requests.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={"Authorization": f"Bearer {_token}", "Content-Type": "application/json"},
+            json={"to": group_id, "messages": messages},
+            timeout=10,
+        )
+
+    members = get_members()
+    pts = get_weekly_points()
+    chores = get_chores()
+    low_pts = [m for m in members if pts.get(m, 0) < POINTS_THRESHOLD]
+
+    lines = ["☀️ 早安！家管助理日報\n"]
+    lines.append(format_weather_block())
+    lines.append("")
+    if chores:
+        lines.append(f"📋 今日待完成家事（共 {len(chores)} 項）：")
+        for c in chores[:8]:
+            lines.append(f"  • {c['name']}（{c['points']}點）")
+    else:
+        lines.append("🎉 今日家事全部完成！大家辛苦了！")
+    lines.append("")
+    if low_pts:
+        lines.append("⚠️ 本週點數還不夠的成員：")
+        for m in low_pts:
+            lines.append(f"  {m}：目前 {pts.get(m,0)} 點（目標 {POINTS_THRESHOLD} 點）")
+        lines.append("\n快去完成家事累積點數吧！💪")
+    else:
+        lines.append("✅ 大家本週點數都達標了，棒棒！🎉")
+    lines.append("\n輸入「家事清單」查看待完成家事")
+    text_body = "\n".join(lines)
+
+    # 先送文字
+    _push([{"type": "text", "text": text_body[:4900]}])
+
+    # 再送 TTS 語音（早安問候）
+    base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if base_url:
+        greeting = f"早安！今天天氣{'不錯，出門記得防曬！' if '晴' in text_body else '要注意，出門帶傘喔！'}"
+        tts_result = text_to_speech(greeting, "zh-TW")
+        if tts_result:
+            audio_bytes, mime = tts_result
+            fname = save_tts_audio(audio_bytes, mime)
+            audio_url = f"{base_url}/tts/{fname}"
+            duration = min(len(greeting) * 300 + 1000, 30000)
+            _push([{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
+
+    return "OK"
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     signature = request.headers.get("X-Line-Signature", "")
