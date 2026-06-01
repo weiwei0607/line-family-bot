@@ -586,7 +586,8 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
         data = get_cocktail(name)
         if data:
             ingr = "、".join(data.get("ingredients", [])[:5])
-            instr = smart_translate(data.get("instructions",""))
+            instr_raw = (data.get("instructions") or "")[:250]
+            instr = smart_translate(instr_raw)
             reply(reply_token, f"🍹 {data.get('name', '')}\n\n食材：{ingr}\n\n{instr}")
         else:
             reply(reply_token, call_gemini("推薦一款適合家庭的飲料或果汁，給出名稱和簡單做法"))
@@ -627,18 +628,10 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
             reply(reply_token, call_gemini("給我一句著名動漫台詞，說出出自哪部作品"))
         return True
 
-    # ── 小花畫圖 ──
+    # ── 小花畫圖（API 已下架，暫時停用）──
     m = re.match(r"^(?:小花畫|畫)\s+(.+)$", text)
     if m:
-        prompt = m.group(1).strip()
-        reply(reply_token, f"🎨 小花正在畫「{prompt}」，請稍候...")
-        img_url = generate_image(prompt)
-        if img_url == QUOTA_MSG:
-            reply(reply_token, QUOTA_MSG)
-        elif img_url:
-            reply_image(reply_token, img_url)
-        else:
-            reply(reply_token, "圖片生成失敗，請稍後再試")
+        reply(reply_token, "🎨 AI 畫圖功能暫時維護中，請稍後再試")
         return True
 
     # ── 匯率 ──
@@ -1012,23 +1005,19 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
     m = re.match(r"^(?:念|唸|說|讀)\s+(.+)", text)
     if m:
         to_speak = m.group(1).strip()
-        # 先回文字確認
-        reply(reply_token, f"🔊 正在念：「{to_speak[:30]}{'...' if len(to_speak) > 30 else ''}」")
-        # 產生語音
         tts_result = text_to_speech(to_speak, "zh-TW")
         if tts_result:
             audio_bytes, mime = tts_result
             fname = save_tts_audio(audio_bytes, mime)
-            # 計算大概長度：中文約每字 300ms
             duration = min(len(to_speak) * 300 + 1000, 60000)
-            # 構造公開 URL（Render URL + /tts/filename）
             base_url = os.environ.get("RENDER_EXTERNAL_URL", "")
-            if not base_url:
-                # 嘗試從 request 推測
-                base_url = request.url_root.rstrip("/") if request else ""
             if base_url:
                 audio_url = f"{base_url}/tts/{fname}"
                 reply_audio(reply_token, audio_url, duration)
+            else:
+                reply(reply_token, "🔊 需要設定 RENDER_EXTERNAL_URL 才能發送語音")
+        else:
+            reply(reply_token, "🔊 語音功能目前無法使用（RapidAPI 免費版不支援）")
         return True
 
     return False
