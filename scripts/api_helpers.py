@@ -353,37 +353,39 @@ def translate_text(text: str, target_lang: str = "zh-TW", source_lang: str = "au
 # ── NASA APOD（每日天文圖片）──────────────────────
 
 def get_nasa_apod() -> dict | None:
-    key = NASA_KEY or "DEMO_KEY"
-    for attempt in range(3):
-        try:
-            r = requests.get(
-                "https://api.nasa.gov/planetary/apod",
-                params={"api_key": key},
-                timeout=30 if attempt == 0 else 45,
-            )
-            if _check_quota(r):
-                return {"_quota": True}
-            if r.status_code != 200:
-                return {"_error": f"NASA API 回傳 {r.status_code}，請稍後再試"}
-            d = r.json()
-            if d.get("error"):
-                return {"_error": f"NASA: {d.get('error', {}).get('message', '未知錯誤')}"}
-            return {
-                "title": d.get("title", ""),
-                "date": d.get("date", ""),
-                "explanation": (d.get("explanation") or "")[:500],
-                "url": d.get("url", ""),
-                "hdurl": d.get("hdurl") or d.get("url", ""),
-                "media_type": d.get("media_type", "image"),
-            }
-        except requests.exceptions.Timeout:
-            if attempt < 2:
-                time.sleep(2)
-                continue
-            return {"_error": "NASA 伺服器回應較慢，請稍後再試 🌌"}
-        except Exception as e:
-            return {"_error": f"NASA 暫時無法連線：{e}"}
-    return {"_error": "NASA 暫時無法連線，請稍後再試 🌌"}
+    def _fetch():
+        key = NASA_KEY or "DEMO_KEY"
+        for attempt in range(3):
+            try:
+                r = requests.get(
+                    "https://api.nasa.gov/planetary/apod",
+                    params={"api_key": key},
+                    timeout=30 if attempt == 0 else 45,
+                )
+                if _check_quota(r):
+                    return {"_quota": True}
+                if r.status_code != 200:
+                    return {"_error": f"NASA API 回傳 {r.status_code}，請稍後再試"}
+                d = r.json()
+                if d.get("error"):
+                    return {"_error": f"NASA: {d.get('error', {}).get('message', '未知錯誤')}"}
+                return {
+                    "title": d.get("title", ""),
+                    "date": d.get("date", ""),
+                    "explanation": (d.get("explanation") or "")[:500],
+                    "url": d.get("url", ""),
+                    "hdurl": d.get("hdurl") or d.get("url", ""),
+                    "media_type": d.get("media_type", "image"),
+                }
+            except requests.exceptions.Timeout:
+                if attempt < 2:
+                    time.sleep(2)
+                    continue
+                return {"_error": "NASA 伺服器回應較慢，請稍後再試 🌌"}
+            except Exception as e:
+                return {"_error": f"NASA 暫時無法連線：{e}"}
+        return {"_error": "NASA 暫時無法連線，請稍後再試 🌌"}
+    return _cached("nasa_apod", 43200, _fetch)
 
 
 # ── 輪班工具 ─────────────────────────────────────
@@ -438,6 +440,28 @@ def text_to_speech(text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
         return None
 
 
+# ── 翻譯快取（減少重複 API 呼叫）──────────────────
+
+_TRANSLATE_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
+_TRANSLATE_CACHE_MAX = 500
+_TRANSLATE_CACHE_TTL = 3600
+
+
+def _translate_cache_get(text: str, target: str) -> str | None:
+    key = (text.strip().lower(), target)
+    entry = _TRANSLATE_CACHE.get(key)
+    if entry and time.time() - entry[1] < _TRANSLATE_CACHE_TTL:
+        return entry[0]
+    return None
+
+
+def _translate_cache_set(text: str, target: str, result: str):
+    key = (text.strip().lower(), target)
+    _TRANSLATE_CACHE[key] = (result, time.time())
+    if len(_TRANSLATE_CACHE) > _TRANSLATE_CACHE_MAX:
+        _TRANSLATE_CACHE.pop(next(iter(_TRANSLATE_CACHE)))
+
+
 # ── 智慧翻譯（只翻英文，其他直接回傳）──────────
 
 def smart_translate(text: str, target: str = "zh-TW") -> str:
@@ -445,7 +469,12 @@ def smart_translate(text: str, target: str = "zh-TW") -> str:
         return text
     if any(ord(c) > 127 for c in text[:30]):
         return text
-    return translate_text(text, target)
+    cached = _translate_cache_get(text, target)
+    if cached is not None:
+        return cached
+    result = translate_text(text, target)
+    _translate_cache_set(text, target, result)
+    return result
 
 
 # ── 笑話輪班（API-Ninjas → JokeAPI.dev → Chuck Norris）
@@ -630,9 +659,22 @@ def get_tts_audio(filename: str) -> tuple[bytes, str] | None:
         logger.warning("API error: %s", _exc)
     return None
 
-from weather_api import *
-from entertainment_api import *
-from finance_api import *
-from health_api import *
-from language_api import *
-from travel_api import *
+# ─── Lazy imports for cold-start optimization ─────────────
+_LAZY_SUBMODULES = [
+    "weather_api", "entertainment_api", "finance_api",
+    "health_api", "language_api", "travel_api",
+]
+
+
+def __getattr__(name: str):
+    """Lazy-load functions from split submodules to speed up cold starts."""
+    for mod in _LAZY_SUBMODULES:
+        try:
+            submodule = __import__(mod, globals(), locals(), [name])
+            val = getattr(submodule, name, None)
+            if val is not None:
+                globals()[name] = val
+                return val
+        except (ImportError, AttributeError):
+            pass
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

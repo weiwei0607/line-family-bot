@@ -4,12 +4,14 @@ LINE 家庭群機器人 webhook
 
 import os
 import logging
+import time
+import uuid
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 import re
 import difflib
 import requests
-from flask import Flask, request, abort
+from flask import Flask, request, abort, g
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -63,6 +65,23 @@ from sheets import (
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB max payload
+
+
+@app.before_request
+def _before_request():
+    g.request_id = uuid.uuid4().hex[:12]
+    g.start_time = time.time()
+
+
+@app.after_request
+def _after_request(response):
+    duration_ms = (time.time() - g.start_time) * 1000
+    logger.info(
+        "[req:%s] %s %s -> %d in %.1fms",
+        g.request_id, request.method, request.path,
+        response.status_code, duration_ms,
+    )
+    return response
 
 # 註冊 Daily Dose API
 from dose_api import dose_bp
