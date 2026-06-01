@@ -31,7 +31,7 @@ from api_helpers import (
     search_recipes_by_ingredients, get_nutrition,
     get_joke, get_trivia, get_cocktail, get_random_activity,
     get_exercise, get_anime_quote, generate_image,
-    get_currency, get_gold_price, get_movie, get_streaming, calc_bmi,
+    get_currency, get_gold_price, get_stock, get_crypto, get_movie, get_streaming, calc_bmi,
     get_chuck_norris, get_motivation_quote, get_movie_quote,
     get_astronomy_fact, get_calories_burned,
     get_jisho, get_kanji_info, get_random_jlpt_word,
@@ -486,8 +486,8 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
                 with ApiClient(configuration) as api_client:
                     profile = MessagingApi(api_client).get_profile(getattr(source, "user_id", ""))
                     member = profile.display_name
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.warning("Silent error: %s", _exc)
         if not member or member not in ["爸爸", "媽媽", "姊姊", "妹妹"]:
             member = "家人"
         add_tidy_log(member, area, content)
@@ -735,6 +735,48 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             reply(reply_token, "\n".join(lines))
         else:
             reply(reply_token, "金價查詢失敗，請稍後再試")
+        return True
+
+    # ── 股票 ──
+    m = re.match(r"^股票\s+(\S+)$", text, re.IGNORECASE)
+    if m:
+        symbol = m.group(1).upper()
+        data = get_stock(symbol)
+        if _q(data, reply_token): return True
+        if data:
+            arrow = "🔺" if data["change"] >= 0 else "🔻"
+            sign = "+" if data["change"] >= 0 else ""
+            lines = [
+                f"📈 {data['symbol']} 股價\n",
+                f"現價：${data['price']:,.2f}",
+                f"漲跌：{arrow} {sign}{data['change']:.2f} ({data['change_pct']})",
+                f"前收：${data['prev_close']:,.2f}",
+                f"成交量：{data['volume']:,}",
+                f"\n⏱ 資料每 5 分鐘更新",
+            ]
+            reply(reply_token, "\n".join(lines))
+        else:
+            reply(reply_token, f"找不到 {symbol} 的股價，請確認代碼（如 AAPL、TSLA、2330.TW）")
+        return True
+
+    # ── 幣價 ──
+    m = re.match(r"^幣價\s+(\S+)$", text, re.IGNORECASE)
+    if m:
+        symbol = m.group(1)
+        data = get_crypto(symbol)
+        if data:
+            arrow = "🔺" if data["change_24h"] >= 0 else "🔻"
+            sign = "+" if data["change_24h"] >= 0 else ""
+            lines = [
+                f"🪙 {data['symbol'].upper()} 幣價\n",
+                f"美元：${data['usd']:,.2f} USD",
+                f"台幣：NT$ {data['twd']:,.0f}",
+                f"24h：{arrow} {sign}{data['change_24h']}%",
+                f"\n⏱ 資料每 5 分鐘更新",
+            ]
+            reply(reply_token, "\n".join(lines))
+        else:
+            reply(reply_token, f"找不到「{symbol}」的幣價，試試 BTC ETH DOGE SOL 等")
         return True
 
     # ── 電影 ──
@@ -1566,8 +1608,8 @@ def _refresh_member_cache():
         for r in rows:
             if len(r) >= 2 and r[0].strip() and r[1].strip():
                 _member_cache[r[1].strip()] = r[0].strip()
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.warning("Silent error: %s", _exc)
 
 
 from utils import send_telegram_alert, rate_limit_check
