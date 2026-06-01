@@ -4,13 +4,20 @@
 """
 
 import os
-from sheets import get_members, get_weekly_points, get_declutter_list, get_weekly_declutter_stats
+from datetime import datetime, timezone, timedelta
+from sheets import get_members, get_weekly_points, get_declutter_list, get_weekly_declutter_stats, get_setting, set_setting
 from line_push import push_text_to_group
 
 POINTS_THRESHOLD = int(os.environ.get("POINTS_THRESHOLD", "5"))
+TW_TZ = timezone(timedelta(hours=8))
 
 
 def main():
+    today = datetime.now(TW_TZ).strftime("%Y-%m-%d")
+    if get_setting("weekly_reset_last_run") == today:
+        print(f"Weekly reset already ran on {today}, skipping.")
+        return
+
     members = get_members()
     pts = get_weekly_points()
 
@@ -49,6 +56,7 @@ def main():
             lines.append(f"  ...還有 {len(pending)-5} 項")
 
     push_text_to_group("\n".join(lines))
+    set_setting("weekly_reset_last_run", today)
     print("Weekly summary sent.")
 
 

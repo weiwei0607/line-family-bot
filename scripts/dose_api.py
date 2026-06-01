@@ -3,6 +3,7 @@ Daily Dose API — 為 Daily Dose App 提供內容 API
 掛載在現有的 Flask app 上
 """
 
+import logging
 from flask import Blueprint, jsonify, request
 from api_helpers import (
     get_motivation_quote, get_joke, get_fun_fact, get_astronomy_fact,
@@ -148,21 +149,38 @@ def dose_translate():
 
 @dose_bp.route("/all", methods=["GET"])
 def dose_all():
-    """一次取得所有 Daily Dose 內容（給首頁用）"""
+    """一次取得所有 Daily Dose 內容（給首頁用）—— 並行呼叫所有外部 API"""
     import random
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     sign_zh = random.choice(list(SIGN_MAP.keys()))
-    return _json({
-        "quote": get_motivation_quote(),
-        "joke": get_joke(),
-        "fact": get_fun_fact(),
-        "astronomy": get_astronomy_fact(),
-        "exercise": get_exercise(),
-        "anime": get_anime_quote(),
-        "horoscope": get_horoscope(SIGN_MAP[sign_zh]),
-        "horoscope_sign": sign_zh,
-        "movie": get_movie(),
-        "activity": get_random_activity(),
-        "cocktail": get_cocktail(""),
-        "meal": get_meal_random(),
-        "advice": get_advice(),
-    })
+
+    _FETCHERS = {
+        "quote": get_motivation_quote,
+        "joke": get_joke,
+        "fact": get_fun_fact,
+        "astronomy": get_astronomy_fact,
+        "exercise": get_exercise,
+        "anime": get_anime_quote,
+        "horoscope": lambda: get_horoscope(SIGN_MAP[sign_zh]),
+        "movie": get_movie,
+        "activity": get_random_activity,
+        "cocktail": lambda: get_cocktail(""),
+        "meal": get_meal_random,
+        "advice": get_advice,
+    }
+
+    results: dict[str, any] = {"horoscope_sign": sign_zh}
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        future_to_key = {
+            pool.submit(fn): key for key, fn in _FETCHERS.items()
+        }
+        for future in as_completed(future_to_key):
+            key = future_to_key[future]
+            try:
+                results[key] = future.result(timeout=15)
+            except Exception as exc:
+                logging.warning("dose_all %s failed: %s", key, exc)
+                results[key] = None
+
+    return _json(results)

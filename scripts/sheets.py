@@ -145,6 +145,32 @@ def register_member(user_id: str, name: str):
     _sc_del("members")
 
 
+# ── 簡易 key-value 設定（存在設定 tab E:F 欄）────
+
+def get_setting(key: str, default=None):
+    try:
+        rows = _read("設定", "E2:F30")
+        for r in rows:
+            if len(r) >= 2 and r[0].strip() == key:
+                return r[1].strip()
+    except Exception:
+        pass
+    return default
+
+
+def set_setting(key: str, value: str):
+    try:
+        rows = _read("設定", "E2:F30")
+        for i, r in enumerate(rows):
+            if len(r) >= 1 and r[0].strip() == key:
+                _update_cell("設定", f"F{i+2}", value)
+                return
+        # 沒找到，新增一行
+        _append("設定", [key, value])
+    except Exception:
+        pass
+
+
 # ──────────────────────────────────────────────
 # 家事清單 Tab: [任務名稱, 點數, 分類, 狀態, 完成者, 完成時間]
 # ──────────────────────────────────────────────
