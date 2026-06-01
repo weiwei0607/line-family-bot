@@ -793,14 +793,33 @@ _LANG_NAME = {
 
 
 def translate_text(text: str, target_lang: str = "zh-TW", source_lang: str = "auto") -> str:
-    """翻譯文字。MyMemory（免費）優先，失敗再用 Gemini。"""
+    """翻譯文字。OpenL → MyMemory → Gemini fallback"""
     if not text:
         return text
 
     tgt = _LANG_MAP.get(target_lang, target_lang)
     src = "en" if source_lang == "auto" else source_lang
 
-    # 1. MyMemory（完全免費，每天約 5000 次）
+    # 1. OpenL Translate (RapidAPI)
+    if RAPIDAPI_KEY:
+        try:
+            tl = target_lang.split("-")[0] if "-" in target_lang else target_lang
+            r = requests.post(
+                "https://openl-translate.p.rapidapi.com/translate/bulk",
+                headers={"Content-Type": "application/json", "x-rapidapi-host": "openl-translate.p.rapidapi.com", "x-rapidapi-key": RAPIDAPI_KEY},
+                json={"target_lang": tl, "text": [text[:500]]},
+                timeout=8,
+            )
+            if r.status_code == 200:
+                d = r.json()
+                if isinstance(d, dict):
+                    txts = d.get("translatedTexts")
+                    if txts and isinstance(txts, list) and len(txts) > 0 and txts[0]:
+                        return txts[0]
+        except Exception:
+            pass
+
+    # 2. MyMemory（完全免費，每天約 5000 次）
     try:
         r = requests.get(
             "https://api.mymemory.translated.net/get",
