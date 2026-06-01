@@ -532,6 +532,25 @@ def search_recipes_by_ingredients(ingredients: str) -> list[dict]:
         return []
 
 
+# ── Dad Jokes（RapidAPI）────────────────────────
+
+def _get_dad_joke_rapidapi() -> str | None:
+    try:
+        if not RAPIDAPI_KEY:
+            return None
+        r = requests.get(
+            "https://dad-jokes7.p.rapidapi.com/dad-jokes/random",
+            headers={"x-rapidapi-host": "dad-jokes7.p.rapidapi.com", "x-rapidapi-key": RAPIDAPI_KEY},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            d = r.json()
+            return d.get("joke", "")
+    except Exception:
+        pass
+    return None
+
+
 # ── Chuck Norris 笑話（免費無需 key）────────────
 
 def get_chuck_norris() -> str:
@@ -981,9 +1000,10 @@ def _get_jokeapi_dev() -> str | None:
         return None
 
 def get_joke_round_robin() -> str:
-    """笑話輪班：API-Ninjas → JokeAPI.dev → Chuck Norris"""
+    """笑話輪班：API-Ninjas → Dad Jokes → JokeAPI.dev → Chuck Norris"""
     result = _fallback_call(
         lambda: get_joke(),
+        _get_dad_joke_rapidapi,
         _get_jokeapi_dev,
         lambda: get_chuck_norris(),
     )
