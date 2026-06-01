@@ -529,10 +529,15 @@ def get_cat_image() -> str | None:
         logger.warning("[cat] %s", e)
     return None
 
-def get_dog_image() -> str | None:
+def get_dog_image(breed: str = "") -> str | None:
     try:
-        r = requests.get("https://dog.ceo/api/breeds/image/random", timeout=8)
-        return r.json().get("message")
+        if breed:
+            url = f"https://dog.ceo/api/breed/{breed}/images/random"
+        else:
+            url = "https://dog.ceo/api/breeds/image/random"
+        r = requests.get(url, timeout=8)
+        msg = r.json().get("message")
+        return msg if isinstance(msg, str) else None
     except Exception as e:
         logger.warning("[dog] %s", e)
     return None

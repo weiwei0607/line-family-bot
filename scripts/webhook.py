@@ -672,7 +672,15 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             reply(reply_token, "貓咪暫時跑走了，待會再試 🐱")
         return True
 
-    if text in ["狗狗圖", "狗狗", "來隻狗", "狗圖", "🐶", "柴柴", "來隻柴柴", "柴犬"]:
+    if text in ["柴柴", "來隻柴柴", "柴犬圖", "柴犬"]:
+        url = get_dog_image("shiba")
+        if url:
+            reply_image(reply_token, url)
+        else:
+            reply(reply_token, "柴柴暫時跑走了，待會再試 🐕")
+        return True
+
+    if text in ["狗狗圖", "狗狗", "來隻狗", "狗圖", "🐶"]:
         url = get_dog_image()
         if url:
             reply_image(reply_token, url)
