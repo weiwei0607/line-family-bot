@@ -38,7 +38,7 @@ from api_helpers import (
     get_spanish_dict, get_meal_random, get_open_trivia, get_number_fact,
     get_nasa_apod, translate_text, smart_translate, text_to_speech, save_tts_audio, get_tts_audio,
     get_joke_round_robin, get_horoscope_round_robin, get_news_round_robin,
-    search_photo, get_curated_photo,
+    search_photo, get_curated_photo, get_holidays,
     get_starmatch, call_groq, groq_stt,
     rewrite_text, check_grammar, search_hotels, search_airports,
     get_aqi, SIGN_MAP,
@@ -1119,6 +1119,31 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
 
     if text in ["翻譯", "translate"]:
         reply(reply_token, "請傳「翻譯 [文字]」或「翻譯成英文 [文字]」\n例：翻譯成日文 你好")
+        return True
+
+    # ── 節假日 ──
+    m = re.match(r"^節日(?:\s+(\d{1,2})[/／](\d{1,2}))?$", text)
+    if m or text in ["今天節日", "今日節日", "今天什麼節", "今天是什麼節日", "什麼節日"]:
+        if m and m.group(1):
+            from datetime import datetime as _dt
+            month, day = int(m.group(1)), int(m.group(2))
+            year = _dt.now().year
+            holidays = get_holidays(year=year, month=month, day=day)
+            date_str = f"{month}/{day}"
+        else:
+            from datetime import datetime as _dt
+            now = _dt.now()
+            holidays = get_holidays()
+            date_str = f"{now.month}/{now.day}"
+        if holidays:
+            lines = [f"🎌 {date_str} 的節日\n"]
+            for h in holidays:
+                name = h.get("name", "")
+                h_type = h.get("type", "")
+                lines.append(f"• {name}（{h_type}）" if h_type else f"• {name}")
+            reply(reply_token, "\n".join(lines))
+        else:
+            reply(reply_token, f"📅 {date_str} 沒有台灣國定假日")
         return True
 
     # ── 今日新聞 ──

@@ -25,6 +25,7 @@ TMDB_KEY = os.environ.get("TMDB_API_KEY", "")
 ALPHA_VANTAGE_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")
 PEXELS_KEY = os.environ.get("PEXELS_KEY", "")
 NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY", "")
+ABSTRACT_KEY = os.environ.get("ABSTRACT_KEY", "")
 
 QUOTA_MSG = "❌ 今日 API 額度用完了，明天再試試！"
 
@@ -1419,6 +1420,33 @@ def get_news_round_robin() -> list[dict]:
     def _fetch():
         return _get_news_newsapi() or _get_news_rss()
     return _cached("news", 3600, _fetch) or []
+
+
+# ── 節假日（Abstract API，每月 1000 次）─────────
+
+def get_holidays(year: int = None, month: int = None, day: int = None, country: str = "TW") -> list[dict]:
+    if not ABSTRACT_KEY:
+        return []
+    now = datetime.now()
+    y = year or now.year
+    m = month or now.month
+    d = day or now.day
+    cache_key = f"holidays_{country}_{y}_{m}_{d}"
+    def _fetch():
+        try:
+            r = requests.get(
+                "https://holidays.abstractapi.com/v1/",
+                params={"api_key": ABSTRACT_KEY, "country": country, "year": y, "month": m, "day": d},
+                timeout=10,
+            )
+            data = r.json()
+            if isinstance(data, list):
+                return data or []
+            return []
+        except Exception as e:
+            logger.warning("[holidays] %s", e)
+            return []
+    return _cached(cache_key, 86400, _fetch) or []
 
 
 # ── TTS 音檔暫存管理 ─────────────────────────────
