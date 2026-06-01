@@ -66,6 +66,7 @@ MEMBER_SIGNS = {
 }
 
 _quiz_state: dict[str, dict] = {}  # group_id -> {question, answer}
+_HELP_TEXT_CACHE: str | None = None  # 指令清單快取
 
 # ─── 工具函數 ─────────────────────────────────
 
@@ -1257,8 +1258,10 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
 
 
 def handle_help(reply_token: str, text: str):
+    global _HELP_TEXT_CACHE
     if text in ["說明", "幫助", "功能", "help", "指令", "指令清單", "清單"]:
-        reply(reply_token, """🏠 家管助理指令清單
+        if _HELP_TEXT_CACHE is None:
+            _HELP_TEXT_CACHE = """🏠 家管助理指令清單
 
 【家事】
 • 完成 [家事名稱]
@@ -1329,7 +1332,8 @@ def handle_help(reply_token: str, text: str):
 • 我是 [名字] — 登記身分
 • 助理 [問題] / 小花 [問題] — AI 問答
 
-目標：每週 5 點，少一點罰 50 元 🎯""")
+目標：每週 5 點，少一點罰 50 元 🎯"""
+        reply(reply_token, _HELP_TEXT_CACHE)
         return True
     return False
 

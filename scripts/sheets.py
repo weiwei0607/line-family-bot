@@ -26,6 +26,7 @@ def _sc_del(*keys):
     for k in keys:
         _sheet_cache.pop(k, None)
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 TW_TZ = timezone(timedelta(hours=8))
 
@@ -63,21 +64,31 @@ def _get_sheet_id():
     return os.environ["FAMILY_SHEET_ID"]
 
 def _read(tab, range_):
-    svc = _get_service()
-    result = svc.spreadsheets().values().get(
-        spreadsheetId=_get_sheet_id(),
-        range=f"{tab}!{range_}",
-    ).execute()
-    return result.get("values", [])
+    try:
+        svc = _get_service()
+        result = svc.spreadsheets().values().get(
+            spreadsheetId=_get_sheet_id(),
+            range=f"{tab}!{range_}",
+        ).execute()
+        return result.get("values", [])
+    except HttpError as e:
+        if e.resp.status in (400, 404):
+            return []
+        raise
 
 def _append(tab, row):
-    svc = _get_service()
-    svc.spreadsheets().values().append(
-        spreadsheetId=_get_sheet_id(),
-        range=f"{tab}!A1",
-        valueInputOption="USER_ENTERED",
-        body={"values": [row]},
-    ).execute()
+    try:
+        svc = _get_service()
+        svc.spreadsheets().values().append(
+            spreadsheetId=_get_sheet_id(),
+            range=f"{tab}!A1",
+            valueInputOption="USER_ENTERED",
+            body={"values": [row]},
+        ).execute()
+    except HttpError as e:
+        if e.resp.status in (400, 404):
+            raise RuntimeError(f"Google Sheets 工作表「{tab}」不存在，請先建立該工作表") from e
+        raise
 
 def _update_cell(tab, cell, value):
     svc = _get_service()
