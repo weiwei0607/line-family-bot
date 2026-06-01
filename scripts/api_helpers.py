@@ -920,94 +920,39 @@ def _fallback_call(*callables: Callable) -> any:
     return None
 
 
-# ── TTS（5 個輪班）────────────────────────────────
-# 回傳 (audio_bytes, mime_type) 或 None
+# ── TTS（edge-tts，免費 Microsoft 神經語音）──────────
 
-_TTS_CONFIGS = [
-    # 1. Open AI Text to Speech — JSON body, 回傳 binary mp3
-    {
-        "host": "open-ai-text-to-speech1.p.rapidapi.com",
-        "endpoint": "/",
-        "headers": {"Content-Type": "application/json"},
-        "body_fn": lambda text, lang: {"model": "tts-1", "input": text, "voice": "alloy"},
-    },
-    # 2. Google Neural TTS — form-urlencoded, 回傳 binary mp3
-    {
-        "host": "text-to-speech-neural-google.p.rapidapi.com",
-        "endpoint": "/",
-        "headers": {"Content-Type": "application/x-www-form-urlencoded"},
-        "body_fn": lambda text, lang: {"msg": text, "lang": "Salli", "source": "ttsmp3"},
-        "data": True,
-    },
-    # 3. Emotional TTS — JSON body, 回傳 binary ogg
-    {
-        "host": "emotional-text-to-speech.p.rapidapi.com",
-        "endpoint": "/synth",
-        "headers": {"Content-Type": "application/json"},
-        "body_fn": lambda text, lang: {
-            "format": "ogg",
-            "data": [{
-                "type": "text", "lang": lang.split("-")[0] if "-" in lang else lang,
-                "speaker": "Elias",
-                "data": [{"text": text, "emotion": [9], "pauseAfter": 300, "pauseBefore": 300}]
-            }]
-        },
-    },
-    # 4. JoJ Text to Speech
-    {
-        "host": "joj-text-to-speech.p.rapidapi.com",
-        "endpoint": "/",
-        "headers": {"Content-Type": "application/json"},
-        "body_fn": lambda text, lang: {
-            "input": {"text": text},
-            "voice": {"languageCode": "zh-TW" if lang == "zh-TW" else "en-US", "name": "zh-TW-Standard-A" if lang == "zh-TW" else "en-US-News-L", "ssmlGender": "FEMALE"},
-            "audioConfig": {"audioEncoding": "MP3"}
-        },
-    },
-    # 5. Cloudlabs Text to Speech（備用，簡化參數）
-    {
-        "host": "cloudlabs-text-to-speech.p.rapidapi.com",
-        "endpoint": "/synthesize",
-        "headers": {"Content-Type": "application/json"},
-        "body_fn": lambda text, lang: {"text": text, "language": lang.split("-")[0] if "-" in lang else lang, "voice": "female"},
-    },
-]
-
-def _try_tts(cfg: dict, text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
-    try:
-        host = cfg["host"]
-        url = f"https://{host}{cfg['endpoint']}"
-        headers = {**_rapidapi_headers(host), **cfg.get("headers", {})}
-        body = cfg["body_fn"](text, lang)
-        if cfg.get("data"):
-            r = requests.post(url, headers=headers, data=body, timeout=15)
-        else:
-            r = requests.post(url, headers=headers, json=body, timeout=15)
-        if r.status_code != 200:
-            return None
-        ct = r.headers.get("Content-Type", "")
-        if "audio" in ct or "mpeg" in ct or "mp3" in ct or "ogg" in ct or "mp4" in ct:
-            return r.content, ct or "audio/mpeg"
-        if "json" in ct:
-            data = r.json()
-            for key in ("audio", "audioContent", "audio_base64", "data", "url"):
-                val = data.get(key) if isinstance(data, dict) else None
-                if val:
-                    if key == "url":
-                        ar = requests.get(val, timeout=10)
-                        return ar.content, ar.headers.get("Content-Type", "audio/mpeg")
-                    return base64.b64decode(val), "audio/mpeg"
-        return r.content, "audio/mpeg"
-    except Exception:
-        return None
+_EDGE_TTS_VOICE = {
+    "zh-TW": "zh-TW-HsiaoChenNeural",
+    "zh-CN": "zh-CN-XiaoxiaoNeural",
+    "en": "en-US-JennyNeural",
+    "ja": "ja-JP-NanamiNeural",
+    "ko": "ko-KR-SunHiNeural",
+}
 
 def text_to_speech(text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
-    """輪班嘗試 5 個 TTS API，回傳 (audio_bytes, mime_type)"""
-    for cfg in _TTS_CONFIGS:
-        result = _try_tts(cfg, text, lang)
-        if result and len(result[0]) > 100:
-            return result
-    return None
+    """使用 edge-tts（Microsoft 神經語音，完全免費）回傳 (mp3_bytes, 'audio/mpeg')"""
+    try:
+        import asyncio
+        import edge_tts
+        import io
+
+        voice = _EDGE_TTS_VOICE.get(lang, "zh-TW-HsiaoChenNeural")
+
+        async def _synth():
+            communicate = edge_tts.Communicate(text[:500], voice)
+            buf = io.BytesIO()
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    buf.write(chunk["data"])
+            return buf.getvalue()
+
+        audio_bytes = asyncio.run(_synth())
+        if audio_bytes and len(audio_bytes) > 100:
+            return audio_bytes, "audio/mpeg"
+        return None
+    except Exception:
+        return None
 
 
 # ── 智慧翻譯（RapidAPI 為主，Gemini 為 fallback）────
