@@ -1562,7 +1562,7 @@ from utils import send_telegram_alert
 def _handle_error(e):
     import traceback
     err_msg = f"家管助理異常：{type(e).__name__}\n{str(e)[:200]}"
-    print(f"[error] {err_msg}")
+    logging.error("Unhandled exception: %s", err_msg)
     traceback.print_exc()
     send_telegram_alert(err_msg)
     return "Internal Server Error", 500

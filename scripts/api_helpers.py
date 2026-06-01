@@ -1283,7 +1283,7 @@ def search_hotels(query: str) -> str:
                 lines.append(f"• {short or full} ({t})")
             return "\n".join(lines)
     except Exception as e:
-        logger.warning("[hotels] %s", "e")
+        logger.warning("[hotels] %s", e)
     return ""
 
 
@@ -1316,7 +1316,7 @@ def search_airports(query: str) -> str:
                 lines.append(f"• {name}{code_str} — {city}, {country}")
             return "\n".join(lines)
     except Exception as e:
-        logger.warning("[airports] %s", "e")
+        logger.warning("[airports] %s", e)
     return ""
 
 
