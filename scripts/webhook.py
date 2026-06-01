@@ -14,20 +14,15 @@ import requests
 from flask import Flask, request, abort, g
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging import (
-    Configuration,
-    ReplyMessageRequest, TextMessage, ImageMessage,
-)
+from linebot.v3.messaging import Configuration
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, AudioMessageContent
 from line_push import (
     reply_text as reply,
     push_messages,
 )
 from api_helpers import (
-    format_weather_block, format_weather_day, format_weather_rain_check,
-    parse_date_offset, get_trivia, get_open_trivia,
-    smart_translate, text_to_speech, save_tts_audio, get_tts_audio,
-    call_gemini, groq_stt, get_aqi,
+    text_to_speech, save_tts_audio, get_tts_audio,
+    call_gemini, groq_stt,
 )
 
 from handlers import (
@@ -36,9 +31,11 @@ from handlers import (
     _handle_horoscope,
     _handle_images,
     _handle_language,
+    _handle_quiz,
     _handle_tidy,
     _handle_tts,
     _handle_utils,
+    _handle_weather,
     handle_admin,
     handle_batch_log,
     handle_chores,
@@ -91,7 +88,6 @@ MEMBER_SIGNS = {
     "妹妹": "金牛",
 }
 
-_quiz_state: dict[str, dict] = {}  # group_id -> {question, answer}
 # ─── 工具函數 ─────────────────────────────────
 
 
@@ -111,80 +107,6 @@ def serve_tts(filename: str):
 
 # ─── 指令處理 ─────────────────────────────────
 
-
-def _handle_weather(reply_token: str, text: str) -> bool:
-    """Handle weather-related commands."""
-    weather_triggers = ["天氣", "下雨", "會下雨", "帶傘", "氣溫", "溫度", "適合出門", "出門嗎"]
-    has_weather_word = any(k in text for k in weather_triggers)
-    date_result = parse_date_offset(text)
-    is_weather_cmd = text in ["天氣", "今天天氣", "天氣如何", "外面天氣"]
-
-    if is_weather_cmd or has_weather_word or (date_result and ("嗎" in text or "?" in text or "？" in text)):
-        if date_result:
-            offset, desc = date_result
-            if offset >= 7:
-                reply(reply_token, f"❌ {desc} 超出7天預報範圍，目前只能查未來7天喔")
-                return True
-            if any(k in text for k in ["下雨", "會不會", "帶傘", "雨"]):
-                reply(reply_token, format_weather_rain_check(offset, desc))
-            else:
-                a = get_aqi()
-                weather_text = format_weather_day(offset)
-                if offset == 0 and "error" not in a:
-                    weather_text += f"\n\n空氣品質 AQI {a['aqi']}（{a['level']}）PM2.5：{a['pm25']}"
-                reply(reply_token, f"🌡 {desc}天氣\n\n{weather_text}")
-        else:
-            reply(reply_token, "🌡 今日天氣\n\n" + format_weather_block())
-        return True
-    return False
-
-
-def _handle_quiz(reply_token: str, text: str, group_id: str) -> bool:
-    """Handle quiz game commands."""
-    global _quiz_state
-    if text in ["出題", "來玩問答", "問答遊戲", "出一題"]:
-        trivia = get_open_trivia() or get_trivia()
-        if trivia and trivia.get("question"):
-            q_zh = smart_translate(trivia["question"])
-            a_zh = smart_translate(trivia["answer"])
-            _quiz_state[group_id] = {"question": q_zh, "answer": a_zh}
-            reply(reply_token, f"🧠 問答時間！\n\n{q_zh}\n\n傳「答 你的答案」作答，傳「答案」看解答")
-        else:
-            qa = call_gemini("出一道適合全家的中文知識問答，格式：\n問題：xxx\n答案：xxx\n只給這兩行")
-            question, answer = "", ""
-            for line in qa.strip().splitlines():
-                if line.startswith("問題："):
-                    question = line[3:].strip()
-                elif line.startswith("答案："):
-                    answer = line[3:].strip()
-            if question and answer:
-                _quiz_state[group_id] = {"question": question, "answer": answer}
-                reply(reply_token, f"🧠 問答時間！\n\n{question}\n\n傳「答 你的答案」作答，傳「答案」看解答")
-            else:
-                reply(reply_token, "出題失敗，再試一次！")
-        return True
-
-    m_ans = re.match(r"^答\s+(.+)$", text)
-    if m_ans:
-        if group_id not in _quiz_state:
-            reply(reply_token, "目前沒有進行中的題目，傳「出題」開始！")
-            return True
-        state = _quiz_state[group_id]
-        user_ans = m_ans.group(1).strip().lower()
-        correct = state["answer"].lower()
-        if correct in user_ans or user_ans in correct:
-            del _quiz_state[group_id]
-            reply(reply_token, f"🎉 答對了！答案是：{state['answer']}")
-        else:
-            reply(reply_token, "❌ 不對喔，再想想！")
-        return True
-
-    if text in ["答案", "我不知道", "放棄", "答案是什麼"]:
-        if group_id in _quiz_state:
-            state = _quiz_state.pop(group_id)
-            reply(reply_token, f"💡 答案是：{state['answer']}")
-            return True
-    return False
 
 
 def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:

@@ -9,6 +9,8 @@ from .horoscope import _handle_horoscope
 from .images import _handle_images
 from .language import _handle_language
 from .member_cache import resolve_member
+from .quiz import _handle_quiz
 from .tidy import _handle_tidy
 from .tts import _handle_tts
 from .utils import _handle_utils
+from .weather import _handle_weather
