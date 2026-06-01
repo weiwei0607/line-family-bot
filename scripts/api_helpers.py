@@ -263,102 +263,95 @@ def get_cocktail(name: str = "") -> dict | None:
 # ── 隨機活動（Random Activity Generator）────────
 
 def get_random_activity() -> dict | None:
-    if not RAPIDAPI_KEY:
-        return None
     try:
-        r = requests.get(
-            "https://random-activity-generator.p.rapidapi.com/activity",
-            headers=_rapidapi_headers("random-activity-generator.p.rapidapi.com"),
-            timeout=10,
-        )
-        if _check_quota(r): return {"_quota": True}
-        return r.json()
+        r = requests.get("https://bored-api.appbrewery.com/random", timeout=10)
+        d = r.json()
+        return {"activity": d.get("activity", ""), "participants": d.get("participants", 1), "type": d.get("type", "")}
     except Exception:
         return None
 
 
-# ── 運動建議（ExerciseDB）────────────────────────
+# ── 運動建議（API-Ninjas，已有 key）──────────────
 
 def get_exercise() -> dict | None:
-    if not RAPIDAPI_KEY:
-        return None
-    try:
-        offset = random.randint(0, 800)
-        r = requests.get(
-            "https://exercisedb.p.rapidapi.com/exercises",
-            headers=_rapidapi_headers("exercisedb.p.rapidapi.com"),
-            params={"limit": "1", "offset": str(offset)},
-            timeout=10,
-        )
-        if _check_quota(r): return {"_quota": True}
-        items = r.json()
-        return items[0] if items else None
-    except Exception:
-        return None
-
-
-# ── 動漫名言（Anime Quotes）──────────────────────
-
-def get_anime_quote() -> dict | None:
-    if not RAPIDAPI_KEY:
-        return None
-    try:
-        r = requests.get(
-            "https://anime-quotes-7.p.rapidapi.com/api/v1/quote",
-            headers=_rapidapi_headers("anime-quotes-7.p.rapidapi.com"),
-            timeout=10,
-        )
-        if _check_quota(r): return {"_quota": True}
-        return r.json()
-    except Exception:
-        return None
-
-
-# ── AI 圖片生成（Flux Free）──────────────────────
-
-def generate_image(prompt: str) -> str | None:
-    """AI Image Generator - API 已下架，暫時停用"""
+    if APININJAS_KEY:
+        try:
+            muscles = ["biceps", "triceps", "chest", "back", "shoulders", "legs", "abs"]
+            r = requests.get("https://api.api-ninjas.com/v1/exercises",
+                             headers=_apininjas_headers(),
+                             params={"muscle": random.choice(muscles)},
+                             timeout=10)
+            if not _check_quota(r):
+                items = r.json()
+                return items[0] if items else None
+        except Exception:
+            pass
     return None
 
 
-# ── 匯率（Currency Conversion）──────────────────
+# ── 動漫名言（animechan.io，免費無需 key）──────────
+
+def get_anime_quote() -> dict | None:
+    try:
+        r = requests.get("https://animechan.io/api/v1/quotes/random", timeout=10)
+        d = r.json().get("data", {})
+        return {
+            "quote": d.get("content", ""),
+            "anime": d.get("anime", {}).get("name", "") if isinstance(d.get("anime"), dict) else "",
+            "character": d.get("character", {}).get("name", "") if isinstance(d.get("character"), dict) else "",
+        }
+    except Exception:
+        return None
+
+
+# ── AI 圖片生成（Pollinations.ai，完全免費無需 key）
+
+def generate_image(prompt: str) -> str | None:
+    try:
+        encoded = requests.utils.quote(prompt)
+        url = f"https://image.pollinations.ai/prompt/{encoded}?width=512&height=512&nologo=true&seed={random.randint(1,9999)}"
+        r = requests.head(url, timeout=25)
+        return url if r.status_code == 200 else None
+    except Exception:
+        return None
+
+
+# ── 匯率（frankfurter.app，免費無需 key，歐洲央行資料）
 
 def get_currency(from_curr: str, to_curr: str = "TWD") -> dict | None:
-    if not RAPIDAPI_KEY:
-        return None
     from_curr = CURRENCY_MAP.get(from_curr, from_curr.upper())
     to_curr = CURRENCY_MAP.get(to_curr, to_curr.upper())
     try:
         r = requests.get(
-            "https://currency-conversion-and-exchange-rates.p.rapidapi.com/convert",
-            headers=_rapidapi_headers("currency-conversion-and-exchange-rates.p.rapidapi.com"),
-            params={"from": from_curr, "to": to_curr, "amount": "1"},
+            "https://api.frankfurter.app/latest",
+            params={"from": from_curr, "to": to_curr},
             timeout=10,
         )
-        if _check_quota(r): return {"_quota": True}
-        d = r.json()
-        return {"from": from_curr, "to": to_curr, "rate": round(d.get("result", 0), 4)}
+        if r.status_code != 200:
+            return None
+        rate = r.json().get("rates", {}).get(to_curr)
+        return {"from": from_curr, "to": to_curr, "rate": round(rate, 4)} if rate else None
     except Exception:
         return None
 
 
-# ── 金價（Gold Price Live）───────────────────────
+# ── 金價（Yahoo Finance 非官方 API，免費無需 key）──
 
 def get_gold_price() -> dict | None:
-    if not RAPIDAPI_KEY:
-        return None
     try:
         r = requests.get(
-            "https://gold-price-live.p.rapidapi.com/get_metal_prices",
-            headers=_rapidapi_headers("gold-price-live.p.rapidapi.com"),
+            "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF",
+            headers={"User-Agent": "Mozilla/5.0"},
             timeout=10,
         )
-        if _check_quota(r): return {"_quota": True}
-        d = r.json()
-        metals = d.get("metals", d)
-        gold = metals.get("XAU") or metals.get("gold") or metals.get("GOLD")
-        silver = metals.get("XAG") or metals.get("silver") or metals.get("SILVER")
-        return {"gold_usd": gold, "silver_usd": silver}
+        price = r.json()["chart"]["result"][0]["meta"]["regularMarketPrice"]
+        silver_r = requests.get(
+            "https://query1.finance.yahoo.com/v8/finance/chart/SI%3DF",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        silver = silver_r.json()["chart"]["result"][0]["meta"]["regularMarketPrice"]
+        return {"gold_usd": round(price, 2), "silver_usd": round(silver, 2)}
     except Exception:
         return None
 
@@ -526,16 +519,15 @@ def get_nutrition(query: str) -> list[dict]:
 # ── 食譜搜尋（Spoonacular via RapidAPI）──────────
 
 def search_recipes_by_ingredients(ingredients: str) -> list[dict]:
-    if not RAPIDAPI_KEY:
-        return []
     try:
+        first = ingredients.split(",")[0].split("、")[0].strip()
         r = requests.get(
-            "https://spoonacular-recipe-food-nutrition-v1.p.rapidapi.com/recipes/findByIngredients",
-            headers=_rapidapi_headers("spoonacular-recipe-food-nutrition-v1.p.rapidapi.com"),
-            params={"ingredients": ingredients, "number": 3, "ranking": 1},
+            "https://www.themealdb.com/api/json/v1/1/filter.php",
+            params={"i": first},
             timeout=10,
         )
-        return r.json()
+        meals = r.json().get("meals") or []
+        return [{"title": m["strMeal"]} for m in meals[:5]]
     except Exception:
         return []
 
@@ -571,22 +563,10 @@ def get_motivation_quote() -> dict | None:
         return None
 
 
-# ── 電影台詞（Movie Quotes by API-Ninjas）────────
+# ── 電影台詞（Gemini 負責，這裡回 None 讓 webhook fallback）
 
 def get_movie_quote() -> dict | None:
-    if not RAPIDAPI_KEY:
-        return None
-    try:
-        r = requests.get(
-            "https://movie-quote-api.p.rapidapi.com/v1/quote/",
-            headers=_rapidapi_headers("movie-quote-api.p.rapidapi.com"),
-            timeout=10,
-        )
-        if _check_quota(r): return {"_quota": True}
-        d = r.json()
-        return {"quote": d.get("quote", ""), "movie": d.get("movie", ""), "character": d.get("character", "")}
-    except Exception:
-        return None
+    return None  # webhook.py 有 Gemini fallback
 
 
 # ── 天文冷知識（Facts by API-Ninjas）────────────
@@ -955,161 +935,37 @@ def text_to_speech(text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
         return None
 
 
-# ── 智慧翻譯（RapidAPI 為主，Gemini 為 fallback）────
-
-def _translate_openl(text: str, target: str = "zh-TW") -> str | None:
-    """OpenL Translate：batch 翻譯"""
-    try:
-        # OpenL 語言代碼是 2 字母（zh, en, ja...）
-        tl = target.split("-")[0] if "-" in target else target
-        r = requests.post(
-            "https://openl-translate.p.rapidapi.com/translate/bulk",
-            headers={**_rapidapi_headers("openl-translate.p.rapidapi.com"), "Content-Type": "application/json"},
-            json={"target_lang": tl, "text": [text]},
-            timeout=10,
-        )
-        if r.status_code != 200:
-            return None
-        d = r.json()
-        # 嘗試多種回傳格式
-        if isinstance(d, list) and len(d) > 0:
-            return d[0]
-        if isinstance(d, dict):
-            for key in ("translations", "translated_texts", "text", "result", "data"):
-                val = d.get(key)
-                if val and isinstance(val, list) and len(val) > 0:
-                    return val[0]
-                if val and isinstance(val, str):
-                    return val
-        return None
-    except Exception:
-        return None
-
-def _translate_ai_translate(text: str, target: str = "zh-TW") -> str | None:
-    """AI Translate（備用）"""
-    try:
-        tl = target.split("-")[0] if "-" in target else target
-        r = requests.post(
-            "https://ai-translate.p.rapidapi.com/translate",
-            headers={**_rapidapi_headers("ai-translate.p.rapidapi.com"), "Content-Type": "application/json"},
-            json={"text": text, "to": tl},
-            timeout=10,
-        )
-        if r.status_code != 200:
-            return None
-        d = r.json()
-        if isinstance(d, dict):
-            for key in ("translatedText", "translation", "text", "result", "output"):
-                val = d.get(key)
-                if val and isinstance(val, str):
-                    return val
-        return None
-    except Exception:
-        return None
-
-def _translate_just_translated(text: str, target: str = "zh-TW") -> str | None:
-    """Just Translated：GET 查詢翻譯"""
-    try:
-        tl = target.split("-")[0] if "-" in target else target
-        r = requests.get(
-            "https://just-translated.p.rapidapi.com/",
-            headers=_rapidapi_headers("just-translated.p.rapidapi.com"),
-            params={"lang": tl, "text": text},
-            timeout=10,
-        )
-        if r.status_code != 200:
-            return None
-        d = r.json()
-        if isinstance(d, dict):
-            for key in ("translatedText", "translation", "text", "result", "output", "translated"):
-                val = d.get(key)
-                if val and isinstance(val, str):
-                    return val
-        if isinstance(d, str):
-            return d
-        return None
-    except Exception:
-        return None
+# ── 智慧翻譯（MyMemory 免費 → Gemini fallback）──────
 
 def smart_translate(text: str, target: str = "zh-TW") -> str:
-    """智慧翻譯：OpenL → Just Translated → AI Translate → Gemini fallback"""
     if not text or not text.strip():
         return text
-    # 已經是中文就直接回傳
     if any(ord(c) > 127 for c in text[:30]):
         return text
-    # 輪班嘗試 RapidAPI 翻譯
-    for fn in (_translate_openl, _translate_just_translated, _translate_ai_translate):
-        result = fn(text, target)
-        if result and result.strip() and result != text:
-            return result
-    # 全部失敗，fallback 到 Gemini
     return translate_text(text, target)
 
 
-# ── 笑話輪班（6 個 API）──────────────────────────
+# ── 笑話輪班（免費來源）────────────────────────────
 
-def _get_dad_joke() -> str | None:
+def _get_jokeapi_dev() -> str | None:
     try:
         r = requests.get(
-            "https://dad-jokes.p.rapidapi.com/random/joke",
-            headers=_rapidapi_headers("dad-jokes.p.rapidapi.com"),
+            "https://v2.jokeapi.dev/joke/Any",
+            params={"safe-mode": "", "blacklistFlags": "nsfw,racist,sexist,explicit"},
             timeout=8,
         )
         d = r.json()
-        if d and d.get("body") and len(d["body"]) > 0:
-            joke = d["body"][0]
-            setup = joke.get("setup", "")
-            punchline = joke.get("punchline", "")
-            return f"{setup}\n{punchline}" if punchline else setup
-        return None
-    except Exception:
-        return None
-
-def _get_world_of_jokes() -> str | None:
-    try:
-        r = requests.get(
-            "https://world-of-jokes1.p.rapidapi.com/v1/jokes/random",
-            headers=_rapidapi_headers("world-of-jokes1.p.rapidapi.com"),
-            timeout=8,
-        )
-        d = r.json()
-        return d.get("joke") or d.get("text") or d.get("content")
-    except Exception:
-        return None
-
-def _get_humor_jokes() -> str | None:
-    try:
-        r = requests.get(
-            "https://humor-jokes-and-memes.p.rapidapi.com/jokes/random",
-            headers=_rapidapi_headers("humor-jokes-and-memes.p.rapidapi.com"),
-            timeout=8,
-        )
-        d = r.json()
-        return d.get("joke") or d.get("text")
-    except Exception:
-        return None
-
-def _get_daddy_jokes() -> str | None:
-    try:
-        r = requests.get(
-            "https://daddyjokes.p.rapidapi.com/random",
-            headers=_rapidapi_headers("daddyjokes.p.rapidapi.com"),
-            timeout=8,
-        )
-        d = r.json()
-        return d.get("joke") or d.get("text")
+        if d.get("type") == "single":
+            return d.get("joke", "")
+        return f"{d.get('setup', '')}\n{d.get('delivery', '')}"
     except Exception:
         return None
 
 def get_joke_round_robin() -> str:
-    """笑話輪班：JokeAPI(主) → Dad Jokes → World of Jokes → Humor Jokes → DaddyJokes → Chuck Norris"""
+    """笑話輪班：API-Ninjas → JokeAPI.dev → Chuck Norris"""
     result = _fallback_call(
         lambda: get_joke(),
-        _get_dad_joke,
-        _get_world_of_jokes,
-        _get_humor_jokes,
-        _get_daddy_jokes,
+        _get_jokeapi_dev,
         lambda: get_chuck_norris(),
     )
     return result or "今天笑話庫休息，請自行搞笑 😅"
@@ -1261,71 +1117,34 @@ def get_horoscope_round_robin(sign: str) -> dict | None:
     )
 
 
-# ── 新聞（2 個輪班）──────────────────────────────
-
-def _get_bing_news() -> list[dict] | None:
-    try:
-        r = requests.get(
-            "https://bing-news-search1.p.rapidapi.com/news",
-            headers=_rapidapi_headers("bing-news-search1.p.rapidapi.com"),
-            params={"mkt": "zh-TW", "safeSearch": "Off", "textFormat": "Raw"},
-            timeout=10,
-        )
-        d = r.json()
-        items = d.get("value", [])
-        return [{"title": i.get("name", ""), "url": i.get("url", ""), "desc": i.get("description", "")} for i in items[:5]]
-    except Exception:
-        return None
-
-def _get_ai_news() -> list[dict] | None:
-    try:
-        r = requests.get(
-            "https://ai-news-global.p.rapidapi.com/news",
-            headers=_rapidapi_headers("ai-news-global.p.rapidapi.com"),
-            params={"limit": "5"},
-            timeout=10,
-        )
-        d = r.json()
-        if isinstance(d, list):
-            return [{"title": i.get("title", ""), "url": i.get("url", ""), "desc": i.get("summary", "")} for i in d[:5]]
-        items = d.get("articles", d.get("news", []))
-        return [{"title": i.get("title", ""), "url": i.get("url", ""), "desc": i.get("summary", i.get("description", ""))} for i in items[:5]]
-    except Exception:
-        return None
+# ── 新聞（Google News RSS，免費無需 key）──────────
 
 def get_news_round_robin() -> list[dict]:
-    """新聞輪班：Bing News(主) → AI News"""
-    result = _fallback_call(_get_bing_news, _get_ai_news)
-    return result or []
+    try:
+        import xml.etree.ElementTree as ET
+        r = requests.get(
+            "https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        root = ET.fromstring(r.content)
+        items = root.findall(".//item")[:5]
+        news = []
+        for item in items:
+            title = item.findtext("title", "")
+            # Google News RSS title 格式：標題 - 來源，移除來源
+            if " - " in title:
+                title = title.rsplit(" - ", 1)[0]
+            news.append({"title": title, "url": item.findtext("link", ""), "desc": ""})
+        return news
+    except Exception:
+        return []
 
 
-# ── Shazam 聽歌識曲 ──────────────────────────────
+# ── Shazam（已移除，語音直接走 Gemini 語音轉文字）──
 
 def shazam_recognize(audio_bytes: bytes) -> dict | None:
-    """用 Shazam 識別音訊，回傳歌曲資訊"""
-    try:
-        b64 = base64.b64encode(audio_bytes).decode("utf-8")
-        r = requests.post(
-            "https://shazam.p.rapidapi.com/songs/detect",
-            headers={**_rapidapi_headers("shazam.p.rapidapi.com"), "Content-Type": "application/octet-stream"},
-            data=audio_bytes,
-            timeout=15,
-        )
-        if r.status_code != 200:
-            return None
-        d = r.json()
-        track = d.get("track", {})
-        if not track:
-            return None
-        return {
-            "title": track.get("title", "未知歌曲"),
-            "artist": track.get("subtitle", "未知歌手"),
-            "album": track.get("sections", [{}])[0].get("metadata", [{}])[0].get("text", "") if track.get("sections") else "",
-            "image": track.get("images", {}).get("coverarthq", track.get("images", {}).get("coverart", "")),
-            "url": track.get("url", ""),
-        }
-    except Exception:
-        return None
+    return None
 
 
 # ── TTS 音檔暫存管理 ─────────────────────────────
