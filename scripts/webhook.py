@@ -39,7 +39,9 @@ from api_helpers import (
     get_nasa_apod, translate_text, smart_translate, text_to_speech, save_tts_audio, get_tts_audio,
     get_joke_round_robin, get_horoscope_round_robin, get_news_round_robin,
     search_photo, get_curated_photo, get_holidays,
-    get_starmatch, call_groq, groq_stt,
+    get_wikipedia, make_qr_url, get_cat_image, get_dog_image,
+    get_world_time, get_country_info,
+    get_starmatch, call_gemini, call_groq, groq_stt,
     rewrite_text, check_grammar, search_hotels, search_airports,
     get_aqi, SIGN_MAP,
     JLPT_N5_KANJI, QUOTA_MSG, TMDB_KEY,
@@ -59,6 +61,7 @@ from sheets import (
 )
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB max payload
 
 # 註冊 Daily Dose API
 from dose_api import dose_bp
@@ -136,26 +139,6 @@ def _send_movie(reply_token: str, movie: dict):
         reply(reply_token, f"🎬 {movie.get('title', '')}（{movie.get('year', '')}）\n\n"
                            f"⭐ {movie.get('rating', '')}　排名第 {movie.get('rank', '')} 名\n\n"
                            f"{movie.get('description', '')[:150]}")
-
-
-def call_gemini(prompt: str) -> str:
-    if not GEMINI_KEY:
-        return call_groq(prompt) or "（需要設定 GEMINI_API_KEY 或 GROQ_API_KEY）"
-    try:
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/"
-            f"models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
-        )
-        resp = requests.post(
-            url,
-            json={"contents": [{"parts": [{"text": prompt}]}]},
-            timeout=20,
-        )
-        if resp.status_code == 429:
-            return call_groq(prompt) or "AI 額度已達上限，請稍後再試"
-        return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except Exception:
-        return call_groq(prompt) or "AI 暫時無法回應"
 
 # ─── 指令處理 ─────────────────────────────────
 
@@ -719,6 +702,74 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             reply_image(reply_token, url)
         else:
             reply(reply_token, "圖片載入失敗，待會再試")
+        return True
+
+    # ── 貓咪 / 狗狗圖片 ──
+    if text in ["貓咪圖", "貓貓", "來隻貓", "貓圖", "🐱"]:
+        url = get_cat_image()
+        if url:
+            reply_image(reply_token, url)
+        else:
+            reply(reply_token, "貓咪暫時跑走了，待會再試 🐱")
+        return True
+
+    if text in ["狗狗圖", "狗狗", "來隻狗", "狗圖", "🐶"]:
+        url = get_dog_image()
+        if url:
+            reply_image(reply_token, url)
+        else:
+            reply(reply_token, "狗狗暫時跑走了，待會再試 🐶")
+        return True
+
+    # ── QR Code ──
+    m = re.match(r"^(?:QR|qr|QR碼|二維碼)\s+(.+)$", text, re.IGNORECASE)
+    if m:
+        qr_url = make_qr_url(m.group(1).strip())
+        reply_image(reply_token, qr_url)
+        return True
+
+    # ── 維基百科 ──
+    m = re.match(r"^(?:百科|維基|查一下|wiki)\s+(.+)$", text, re.IGNORECASE)
+    if m:
+        query = m.group(1).strip()
+        info = get_wikipedia(query)
+        if info and info.get("extract"):
+            reply(reply_token, f"📖 {info['title']}\n\n{info['extract'][:300]}")
+        else:
+            reply(reply_token, f"📖 {query}\n\n{call_gemini(f'用繁體中文簡短介紹「{query}」，2-3句。')}")
+        return True
+
+    # ── 世界時間 ──
+    m = re.match(r"^(?:幾點了|現在幾點|時間)\s+(.+)$", text)
+    if m:
+        city = m.group(1).strip()
+        info = get_world_time(city)
+        if info:
+            reply(reply_token, f"🕐 {city}現在時間\n\n{info['datetime']}")
+        else:
+            reply(reply_token, f"找不到「{city}」的時區，試試：東京、倫敦、紐約、曼谷")
+        return True
+
+    # ── 國家資訊 ──
+    m = re.match(r"^(?:查國家|國家)\s+(.+)$", text)
+    if m:
+        name = m.group(1).strip()
+        info = get_country_info(name)
+        if info:
+            pop = f"{info['population']:,}"
+            area = f"{info['area']:,.0f}" if info.get("area") else "—"
+            lines = [
+                f"{info.get('flag', '')} {info['name']}\n",
+                f"首都：{info['capital'] or '—'}",
+                f"地區：{info['region']}",
+                f"人口：{pop}",
+                f"面積：{area} km²",
+                f"語言：{info['languages'] or '—'}",
+                f"貨幣：{info['currencies'] or '—'}",
+            ]
+            reply(reply_token, "\n".join(lines))
+        else:
+            reply(reply_token, f"找不到「{name}」的資料，試試英文名稱")
         return True
 
     # ── 匯率 ──
@@ -1424,6 +1475,11 @@ def daily_push():
     if not cron_secret or not token or token != cron_secret:
         abort(403)
 
+    # Idempotency: skip if already ran today
+    from tts_store import cron_is_done, cron_mark_done
+    if cron_is_done("daily_push"):
+        return "Already done today", 200
+
     from sheets import get_members, get_chores, get_weekly_points
     from api_helpers import format_weather_block
 
@@ -1476,6 +1532,7 @@ def daily_push():
             duration = min(len(greeting) * 300 + 1000, 30000)
             push_messages(group_id, [{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
 
+    cron_mark_done("daily_push")
     return "OK"
 
 
@@ -1483,6 +1540,14 @@ def daily_push():
 def webhook():
     signature = request.headers.get("X-Line-Signature", "")
     body = request.get_data(as_text=True)
+
+    # Deduplication: skip duplicate webhook deliveries
+    import hashlib
+    from tts_store import webhook_seen
+    dedup_key = hashlib.sha256(body.encode()).hexdigest()[:32]
+    if webhook_seen(dedup_key, ttl_seconds=60):
+        return "OK", 200
+
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
