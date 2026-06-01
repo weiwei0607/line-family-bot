@@ -4,27 +4,13 @@
 
 import math
 import os
-import requests
 from datetime import datetime, timezone, timedelta
 from sheets import get_members, get_last_week_points, get_chores, add_fine, get_outstanding_fines
+from line_push import push_text_to_group
 
 TW_TZ = timezone(timedelta(hours=8))
-GROUP_ID = os.environ["LINE_GROUP_ID"]
-CHANNEL_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 POINTS_THRESHOLD = int(os.environ.get("POINTS_THRESHOLD", "5"))
 FINE_PER_POINT = int(os.environ.get("FINE_PER_POINT", "50"))
-
-
-def push(text: str):
-    requests.post(
-        "https://api.line.me/v2/bot/message/push",
-        headers={
-            "Authorization": f"Bearer {CHANNEL_TOKEN}",
-            "Content-Type": "application/json",
-        },
-        json={"to": GROUP_ID, "messages": [{"type": "text", "text": text[:4900]}]},
-        timeout=10,
-    )
 
 
 def main():
@@ -80,7 +66,7 @@ def main():
         lines.append(f"  • {c['name']}（{c['points']}點）")
     lines.append(f"\n目標：每週 {POINTS_THRESHOLD} 點，加油 💪")
 
-    push("\n".join(lines))
+    push_text_to_group("\n".join(lines))
     print("Weekly penalty sent.")
 
 

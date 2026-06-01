@@ -14,6 +14,8 @@ import io
 import requests
 from datetime import datetime, timedelta
 from typing import Callable
+import logging
+logger = logging.getLogger(__name__)
 
 LAT = float(os.environ.get("LOCATION_LAT", "25.04"))
 LON = float(os.environ.get("LOCATION_LON", "121.53"))
@@ -1281,7 +1283,7 @@ def search_hotels(query: str) -> str:
                 lines.append(f"• {short or full} ({t})")
             return "\n".join(lines)
     except Exception as e:
-        print(f"[hotels] {e}")
+        logger.warning("[hotels] %s", "e")
     return ""
 
 
@@ -1314,7 +1316,7 @@ def search_airports(query: str) -> str:
                 lines.append(f"• {name}{code_str} — {city}, {country}")
             return "\n".join(lines)
     except Exception as e:
-        print(f"[airports] {e}")
+        logger.warning("[airports] %s", "e")
     return ""
 
 

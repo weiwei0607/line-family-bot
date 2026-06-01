@@ -3,6 +3,9 @@ LINE 家庭群機器人 webhook
 """
 
 import os
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 import re
 import difflib
 import requests
@@ -14,6 +17,14 @@ from linebot.v3.messaging import (
     ReplyMessageRequest, TextMessage, ImageMessage,
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, AudioMessageContent
+from line_push import (
+    reply_text as reply,
+    reply_image,
+    reply_audio,
+    reply_image_with_text,
+    push_text,
+    push_messages,
+)
 from api_helpers import (
     format_weather_block, format_weather_day, format_weather_rain_check,
     parse_date_offset, get_advice, get_horoscope, get_fun_fact,
@@ -50,6 +61,8 @@ app = Flask(__name__)
 
 # 註冊 Daily Dose API
 from dose_api import dose_bp
+import logging
+logger = logging.getLogger(__name__)
 app.register_blueprint(dose_bp)
 
 _token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
@@ -71,49 +84,6 @@ _HELP_TEXT_CACHE: str | None = None  # 指令清單快取
 
 # ─── 工具函數 ─────────────────────────────────
 
-def reply(reply_token: str, text: str):
-    with ApiClient(configuration) as api_client:
-        MessagingApi(api_client).reply_message(
-            ReplyMessageRequest(
-                reply_token=reply_token,
-                messages=[TextMessage(text=text[:4900])],
-            )
-        )
-
-def reply_image(reply_token: str, image_url: str, fallback: str = "圖片生成失敗"):
-    try:
-        with ApiClient(configuration) as api_client:
-            MessagingApi(api_client).reply_message(
-                ReplyMessageRequest(
-                    reply_token=reply_token,
-                    messages=[ImageMessage(
-                        original_content_url=image_url,
-                        preview_image_url=image_url,
-                    )],
-                )
-            )
-    except Exception:
-        reply(reply_token, fallback)
-
-
-from linebot.v3.messaging import AudioMessage
-
-def reply_audio(reply_token: str, audio_url: str, duration: int = 5000, fallback: str = "語音發送失敗"):
-    """發送語音訊息（duration 單位：毫秒）"""
-    try:
-        with ApiClient(configuration) as api_client:
-            MessagingApi(api_client).reply_message(
-                ReplyMessageRequest(
-                    reply_token=reply_token,
-                    messages=[AudioMessage(
-                        original_content_url=audio_url,
-                        duration=duration,
-                    )],
-                )
-            )
-    except Exception:
-        reply(reply_token, fallback)
-
 
 # ── TTS 音檔公開路由 ───────────────────────────
 
@@ -124,22 +94,6 @@ def serve_tts(filename: str):
         abort(404)
     from flask import Response
     return Response(data[0], mimetype=data[1])
-
-
-def reply_image_with_text(reply_token: str, image_url: str, text: str):
-    try:
-        with ApiClient(configuration) as api_client:
-            MessagingApi(api_client).reply_message(
-                ReplyMessageRequest(
-                    reply_token=reply_token,
-                    messages=[
-                        ImageMessage(original_content_url=image_url, preview_image_url=image_url),
-                        TextMessage(text=text[:4900]),
-                    ],
-                )
-            )
-    except Exception:
-        reply(reply_token, text)
 
 
 def _q(val, reply_token: str) -> bool:
@@ -476,6 +430,11 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
 
     group_id = getattr(source, "group_id", None) or getattr(source, "room_id", "default")
 
+    # ── Simple dispatch (fast path for stateless commands) ──
+    from dispatch_fun import try_dispatch
+    if try_dispatch(text, lambda t: reply(reply_token, t)):
+        return True
+
     # ── 天氣 ──
     weather_triggers = ["天氣", "下雨", "會下雨", "帶傘", "氣溫", "溫度", "適合出門", "出門嗎"]
     has_weather_word = any(k in text for k in weather_triggers)
@@ -753,10 +712,14 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
 
     # ── 金價 ──
     if text in ["金價", "今日金價", "黃金價格"]:
-        data = get_gold_price()
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_gold = ex.submit(get_gold_price)
+            f_twd = ex.submit(get_currency, "USD", "TWD")
+            data = f_gold.result()
+            twd = f_twd.result()
         if _q(data, reply_token): return True
         if data and data.get("gold_usd"):
-            twd = get_currency("USD", "TWD")
             rate = twd["rate"] if twd and twd.get("rate") and not twd.get("_quota") else 31
             gold_twd = round(float(data["gold_usd"]) * rate)
             lines = [
@@ -1380,14 +1343,6 @@ def daily_push():
     if not group_id:
         return "LINE_GROUP_ID not set", 500
 
-    def _push(messages: list):
-        requests.post(
-            "https://api.line.me/v2/bot/message/push",
-            headers={"Authorization": f"Bearer {_token}", "Content-Type": "application/json"},
-            json={"to": group_id, "messages": messages},
-            timeout=10,
-        )
-
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=3) as ex:
         f_members = ex.submit(get_members)
@@ -1419,7 +1374,7 @@ def daily_push():
     text_body = "\n".join(lines)
 
     # 先送文字
-    _push([{"type": "text", "text": text_body[:4900]}])
+    push_messages(group_id, [{"type": "text", "text": text_body[:4900]}])
 
     # 再送 TTS 語音（早安問候）
     base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -1431,7 +1386,7 @@ def daily_push():
             fname = save_tts_audio(audio_bytes, mime)
             audio_url = f"{base_url}/tts/{fname}"
             duration = min(len(greeting) * 300 + 1000, 30000)
-            _push([{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
+            push_messages(group_id, [{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
 
     return "OK"
 
@@ -1599,6 +1554,18 @@ def _refresh_member_cache():
                 _member_cache[r[1].strip()] = r[0].strip()
     except Exception:
         pass
+
+
+from utils import send_telegram_alert
+
+@app.errorhandler(Exception)
+def _handle_error(e):
+    import traceback
+    err_msg = f"家管助理異常：{type(e).__name__}\n{str(e)[:200]}"
+    print(f"[error] {err_msg}")
+    traceback.print_exc()
+    send_telegram_alert(err_msg)
+    return "Internal Server Error", 500
 
 
 if __name__ == "__main__":

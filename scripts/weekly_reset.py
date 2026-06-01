@@ -4,27 +4,10 @@
 """
 
 import os
-import requests
 from sheets import get_members, get_weekly_points, get_declutter_list, get_weekly_declutter_stats
+from line_push import push_text_to_group
 
-GROUP_ID = os.environ["LINE_GROUP_ID"]
-CHANNEL_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 POINTS_THRESHOLD = int(os.environ.get("POINTS_THRESHOLD", "5"))
-
-
-def push(text: str):
-    requests.post(
-        "https://api.line.me/v2/bot/message/push",
-        headers={
-            "Authorization": f"Bearer {CHANNEL_TOKEN}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "to": GROUP_ID,
-            "messages": [{"type": "text", "text": text[:4900]}],
-        },
-        timeout=10,
-    )
 
 
 def main():
@@ -65,7 +48,7 @@ def main():
         if len(pending) > 5:
             lines.append(f"  ...還有 {len(pending)-5} 項")
 
-    push("\n".join(lines))
+    push_text_to_group("\n".join(lines))
     print("Weekly summary sent.")
 
 
