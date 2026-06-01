@@ -30,6 +30,7 @@ from api_helpers import (
     get_joke_round_robin, get_horoscope_round_robin, get_news_round_robin,
     get_starmatch, call_groq, groq_stt,
     rewrite_text, check_grammar, search_hotels, search_airports,
+    get_aqi, SIGN_MAP,
     JLPT_N5_KANJI, QUOTA_MSG, TMDB_KEY,
 )
 
@@ -1177,9 +1178,13 @@ def handle_admin(reply_token: str, source, text: str):
             return True
         c = changed
         area_emoji = "🏠" if c['area'] == "自己" else "🛋" if c['area'] == "公共" else "📦"
+        # time 欄位已含完整日期時間，取 MM/DD HH:MM 顯示
+        time_disp = c['time']
+        if len(time_disp) >= 16:
+            time_disp = time_disp[5:16]  # YYYY-MM-DD HH:MM → MM-DD HH:MM
         reply(reply_token,
-              f"✅ 已將最新一筆「{old_name}」修正為「{new_name}」\n"
-              f"  {c['date']} {c['time']} {area_emoji} {c['content']}")
+              f"✅ 已修正「{old_name}」→「{new_name}」\n"
+              f"{area_emoji} {time_disp} ｜ {c['content']}")
         return True
 
     return False
@@ -1361,8 +1366,11 @@ def health():
 @app.route("/daily_push", methods=["POST"])
 def daily_push():
     """早安推播（含 TTS），由 GitHub Actions 每天呼叫"""
+    cron_secret = os.environ.get("CRON_SECRET", "")
     token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
-    if token != _token:  # 用現有的 LINE_CHANNEL_ACCESS_TOKEN 驗證
+    # 優先使用獨立的 CRON_SECRET；若未設定，暫時 fallback 到舊的 LINE token（相容期）
+    expected = cron_secret if cron_secret else _token
+    if not expected or not token or token != expected:
         abort(403)
 
     from sheets import get_members, get_chores, get_weekly_points
