@@ -113,22 +113,42 @@ def groq_stt(audio_bytes: bytes, mime: str = "audio/mpeg") -> str:
         return ""
 
 
+def _retry_http(fn, max_retries=3, backoff=2):
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            last_exc = exc
+            if attempt < max_retries - 1:
+                import time
+                time.sleep(backoff ** attempt)
+    raise last_exc
+
+
 def call_gemini(prompt: str) -> str:
     key = _gemini_key()
     prompt = sanitize_input(prompt)
     if not key:
         return call_groq(prompt)
-    try:
-        resp = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
-            json={"contents": [{"parts": [{"text": prompt}]}]},
-            timeout=15,
-        )
-        if resp.status_code == 429:
-            return call_groq(prompt)
-        return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except Exception:
-        return call_groq(prompt)
+    for attempt in range(3):
+        try:
+            resp = _retry_http(
+                lambda: requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
+                    json={"contents": [{"parts": [{"text": prompt}]}]},
+                    timeout=15,
+                )
+            )
+            if resp.status_code == 429:
+                return call_groq(prompt)
+            return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except Exception:
+            if attempt == 2:
+                return call_groq(prompt)
+            import time
+            time.sleep(2 ** attempt)
+    return call_groq(prompt)
 
 
 # ── 快取機制（天氣 30 分鐘、星座 6 小時、新聞 1 小時）──

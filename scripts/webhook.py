@@ -479,23 +479,6 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
         reply(reply_token, f"✅ 已記錄！\n{area_emoji} {member} → {content}（{area}區域）\n\n傳「收拾」查看今天全家紀錄")
         return True
 
-    # ── 今天吃什麼 ──
-    if text in ["今天吃什麼", "吃什麼", "晚餐吃什麼", "午餐吃什麼"]:
-        meal = get_meal_random()
-        if meal:
-            name_zh = smart_translate(meal["name"])
-            ingr = "、".join(meal["ingredients"][:6])
-            ingr_zh = smart_translate(ingr)
-            lines = [f"🍽 今天來做：{name_zh}（{meal['area']} 料理）\n",
-                     f"食材：{ingr_zh}"]
-            if meal.get("youtube"):
-                lines.append(f"\n▶️ 做法影片：{meal['youtube']}")
-            reply(reply_token, "\n".join(lines))
-        else:
-            reply(reply_token, call_gemini(
-                "隨機推薦一道台灣家常料理，格式：\n🍽 [菜名]\n食材：xxx\n做法：xxx（一句話）"
-            ))
-        return True
 
     # ── 星座運勢（輪班：Aztro → Daily Advanced → Daily Basic → Rashifal → Horostory → Astrologer）──
     m = re.match(r"^(牡羊|金牛|雙子|巨蟹|獅子|處女|天秤|天蠍|射手|摩羯|水瓶|雙魚)座?運勢?$", text)
@@ -612,18 +595,6 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             reply(reply_token, f"💡 答案是：{state['answer']}")
             return True
 
-    # ── 笑話（輪班：JokeAPI → Dad Jokes → World of Jokes → Humor Jokes → DaddyJokes → Chuck Norris）──
-    if text in ["笑話", "說個笑話", "講個笑話"]:
-        joke = get_joke_round_robin()
-        if _q(joke, reply_token): return True
-        if joke and any(ord(c) > 127 for c in joke[:20]):
-            reply(reply_token, f"😂 {joke}")
-        elif joke:
-            joke_zh = smart_translate(joke)
-            reply(reply_token, f"😂 {joke_zh}")
-        else:
-            reply(reply_token, call_gemini("說一個適合全家的台灣笑話"))
-        return True
 
     # ── 推薦飲料 ──
     m = re.match(r"^(?:推薦飲料|飲料)\s*(.*)$", text)
@@ -639,40 +610,8 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             reply(reply_token, call_gemini("推薦一款適合家庭的飲料或果汁，給出名稱和簡單做法"))
         return True
 
-    # ── 今天做什麼 ──
-    if text in ["今天做什麼", "無聊", "推薦活動", "隨機活動"]:
-        data = get_random_activity()
-        if data and data.get("activity"):
-            act_zh = smart_translate(data["activity"])
-            reply(reply_token, f"🎯 今天來試試：\n\n{act_zh}\n\n（適合 {data.get('participants','?')} 人）")
-        else:
-            reply(reply_token, call_gemini("推薦一個適合全家一起做的休閒活動，用繁體中文回答"))
-        return True
 
-    # ── 今天運動 ──
-    if text in ["今天運動", "運動建議", "健身建議"]:
-        data = get_exercise()
-        if data:
-            name_zh = smart_translate(data.get("name",""))
-            body_zh = smart_translate(data.get("bodyPart",""))
-            equip_zh = smart_translate(data.get("equipment",""))
-            reply(reply_token, f"💪 今日運動：{name_zh}\n\n部位：{body_zh}\n器材：{equip_zh}")
-        else:
-            reply(reply_token, call_gemini("推薦一個適合在家做的簡單運動，說明動作和次數"))
-        return True
 
-    # ── 動漫名言 ──
-    if text in ["動漫名言", "動漫語錄", "今日動漫"]:
-        data = get_anime_quote()
-        if data and data.get("quote"):
-            quote = data.get("quote", "")
-            anime = data.get("anime", "")
-            char = data.get("character", "")
-            quote_zh = smart_translate(quote)
-            reply(reply_token, f"🌸 {quote_zh}\n\n—《{anime}》{char}")
-        else:
-            reply(reply_token, call_gemini("給我一句著名動漫台詞，說出出自哪部作品"))
-        return True
 
     # ── 小花畫圖（Pollinations.ai，免費無限）──
     m = re.match(r"^(?:小花畫|畫)\s+(.+)$", text)
@@ -931,53 +870,10 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             reply(reply_token, "查不到，試試英文食物名稱")
         return True
 
-    # ── 冷知識 ──
-    if text in ["冷知識", "今日冷知識", "告訴我一件事"]:
-        fact_en = get_fun_fact()
-        if fact_en:
-            reply(reply_token, f"🤓 冷知識\n\n{smart_translate(fact_en)}")
-        else:
-            reply(reply_token, call_gemini("給我一個有趣的冷知識，用繁體中文"))
-        return True
 
-    # ── 人生建議 ──
-    if text in ["給我建議", "人生建議", "今日建議", "金玉良言"]:
-        advice_en = get_advice()
-        if advice_en:
-            translated = smart_translate(advice_en)
-            reply(reply_token, f"💡 {translated}\n\n（{advice_en}）")
-        else:
-            reply(reply_token, "今天沒有建議，就靠自己吧！")
-        return True
 
-    # ── 激勵名言 ──
-    if text in ["激勵名言", "給我力量", "今日名言", "名言"]:
-        q = get_motivation_quote()
-        if q and q.get("text"):
-            translated = smart_translate(q["text"])
-            reply(reply_token, f"✨ {translated}\n\n— {q['author']}")
-        else:
-            reply(reply_token, call_gemini("給我一句激勵人心的名言，用繁體中文"))
-        return True
 
-    # ── 電影台詞 ──
-    if text in ["電影台詞", "名片台詞", "電影名言"]:
-        q = get_movie_quote()
-        if q and q.get("quote"):
-            quote_zh = smart_translate(q["quote"])
-            reply(reply_token, f"🎬 「{quote_zh}」\n\n—《{q['movie']}》{q['character']}")
-        else:
-            reply(reply_token, call_gemini("給我一句著名電影台詞，說出電影名稱，用繁體中文"))
-        return True
 
-    # ── 天文冷知識 ──
-    if text in ["天文冷知識", "科學冷知識", "宇宙冷知識"]:
-        fact_en = get_astronomy_fact()
-        if fact_en:
-            reply(reply_token, f"🔭 {smart_translate(fact_en)}")
-        else:
-            reply(reply_token, call_gemini("給我一個有趣的天文或科學冷知識，用繁體中文"))
-        return True
 
     # ── 消耗熱量 ──
     m = re.match(r"^消耗熱量\s+(.+?)(?:\s+(\d+)分鐘?)?$", text)
@@ -1017,15 +913,6 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             reply(reply_token, "🌌 NASA 暫時無法連線，請稍後再試")
         return True
 
-    # ── Chuck Norris ──
-    if text in ["Chuck Norris", "查克諾里斯", "功夫笑話"]:
-        joke_en = get_chuck_norris()
-        if joke_en:
-            joke_zh = smart_translate(joke_en)
-            reply(reply_token, f"💪 {joke_zh}")
-        else:
-            reply(reply_token, call_gemini("說一個關於超強壯男人的誇張笑話，用繁體中文"))
-        return True
 
     # ── 日文查詢 ──
     m = re.match(r"^(?:日文|查日文|日語)\s+(.+)$", text)
@@ -1043,22 +930,6 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             reply(reply_token, call_gemini(f"用繁體中文解釋日文單字「{word}」的意思和讀音"))
         return True
 
-    # ── 今日日文單字 ──
-    if text in ["今日日文單字", "日文單字", "學日文"]:
-        data = get_random_jlpt_word()
-        if data:
-            jlpt = f"JLPT {data['jlpt'][0].upper()}" if data.get("jlpt") else "N5"
-            meanings_zh = smart_translate(", ".join(data["meanings_en"]))
-            reply(reply_token,
-                  f"📖 今日日文單字（{jlpt}）\n\n"
-                  f"✏️ {data['word']}　読み：{data['reading']}\n"
-                  f"意思：{meanings_zh}\n\n"
-                  f"試著造個句子看看！")
-        else:
-            reply(reply_token, call_gemini(
-                "給我一個 JLPT N5 等級的日文單字，包含：單字、假名讀音、繁體中文意思、一個例句"
-            ))
-        return True
 
     # ── 漢字查詢 ──
     m = re.match(r"^漢字\s+([^\s])$", text)
@@ -1080,27 +951,6 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             reply(reply_token, call_gemini(f"用繁體中文解釋日文漢字「{char}」的讀音和意思"))
         return True
 
-    # ── 今日漢字 ──
-    if text in ["今日漢字", "隨機漢字", "學漢字"]:
-        import random as _r
-        char = _r.choice(JLPT_N5_KANJI)
-        data = get_kanji_info(char)
-        if data:
-            jlpt = f"JLPT N{data['jlpt']}" if data.get("jlpt") else "N5"
-            on = "、".join(data["on_readings"]) or "—"
-            kun = "、".join(data["kun_readings"]) or "—"
-            meanings = "、".join(data["meanings"]) or "—"
-            example = call_gemini(f"用「{char}」造一個簡單的日文例句，附上假名讀音和繁體中文翻譯")
-            reply(reply_token,
-                  f"🈶 今日漢字：{data['kanji']}（{jlpt}）\n\n"
-                  f"音讀：{on}\n訓讀：{kun}\n意思：{meanings}\n"
-                  f"筆畫：{data['stroke_count']}\n\n"
-                  f"例句：\n{example}")
-        else:
-            reply(reply_token, call_gemini(
-                f"用繁體中文介紹日文漢字「{char}」，包含讀音、意思和一個例句"
-            ))
-        return True
 
     # ── 西班牙文查詢 ──
     m = re.match(r"^(?:西文|查西文|西班牙文)\s+(.+)$", text)
@@ -1119,26 +969,7 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             ))
         return True
 
-    # ── 今日西文單字 ──
-    if text in ["今日西文單字", "西文單字", "學西文", "學西班牙文"]:
-        reply(reply_token, call_gemini(
-            "給我一個 A1-A2 等級的西班牙文單字，格式：\n"
-            "📖 單字：xxx\n"
-            "詞性：xxx\n"
-            "中文意思：xxx\n"
-            "例句：xxx（附中文翻譯）\n"
-            "記憶技巧：xxx（一句話）"
-        ))
-        return True
 
-    # ── 數字冷知識 ──
-    if text in ["數字冷知識", "數字趣聞"]:
-        fact_en = get_number_fact()
-        if fact_en:
-            reply(reply_token, f"🔢 {smart_translate(fact_en)}")
-        else:
-            reply(reply_token, call_gemini("給我一個關於數字的有趣冷知識，用繁體中文"))
-        return True
 
     # ── 翻譯 ──
     m = re.match(r"^(?:翻譯|翻|translate)\s*(?:成?([\w\-]+)\s+)?(.+)", text, re.IGNORECASE)
@@ -1197,18 +1028,6 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             reply(reply_token, f"📅 {date_str} 沒有台灣國定假日")
         return True
 
-    # ── 今日新聞 ──
-    if text in ["新聞", "今日新聞", "頭條", "今天新聞"]:
-        items = get_news_round_robin()
-        if items:
-            lines = ["📰 今日頭條\n"]
-            for i, it in enumerate(items[:5], 1):
-                title = it.get("title", "")
-                lines.append(f"{i}. {title}")
-            reply(reply_token, "\n".join(lines))
-        else:
-            reply(reply_token, "新聞取得失敗，待會再試")
-        return True
 
     # ── 念出來（TTS）──
     m = re.match(r"^(?:念|唸|說|讀)\s+(.+)", text)
@@ -1464,7 +1283,42 @@ def handle_help(reply_token: str, text: str):
 @app.route("/")
 @app.route("/health")
 def health():
-    return "OK", 200
+    checks = {}
+    # 1. SQLite TTS store
+    try:
+        from tts_store import get_tts_audio
+        get_tts_audio("__health__")
+        checks["tts_db"] = "ok"
+    except Exception as e:
+        checks["tts_db"] = f"fail: {e}"
+
+    # 2. LINE API connectivity
+    try:
+        import requests
+        token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+        if token:
+            r = requests.get(
+                "https://api.line.me/v2/bot/info",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=5,
+            )
+            checks["line_api"] = "ok" if r.status_code == 200 else f"warn: {r.status_code}"
+        else:
+            checks["line_api"] = "skip: no token"
+    except Exception as e:
+        checks["line_api"] = f"fail: {e}"
+
+    # 3. Google Sheets token check
+    try:
+        from sheets import _get_service
+        _get_service()
+        checks["sheets"] = "ok"
+    except Exception as e:
+        checks["sheets"] = f"fail: {e}"
+
+    all_ok = all(v == "ok" for v in checks.values())
+    status = 200 if all_ok else 503
+    return checks, status
 
 
 @app.route("/daily_push", methods=["POST"])
@@ -1643,6 +1497,14 @@ def handle_audio_message(event: MessageEvent):
 
     if not audio_url:
         reply(reply_token, "🎤 無法取得語音檔案，請確認設定")
+        return
+
+    # SSRF guard: only allow LINE content-provider domains
+    from urllib.parse import urlparse
+    parsed = urlparse(audio_url)
+    allowed_hosts = ("api-data.line.me", "data.line.me")
+    if parsed.scheme != "https" or parsed.hostname not in allowed_hosts:
+        reply(reply_token, "🎤 語音來源不合法")
         return
 
     # 下載音檔

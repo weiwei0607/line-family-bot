@@ -69,13 +69,30 @@ def _get_service():
 def _get_sheet_id():
     return os.environ["FAMILY_SHEET_ID"]
 
+def _retry_gapi(fn, max_retries=3, backoff=2):
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except HttpError as e:
+            last_exc = e
+            if e.resp.status in (400, 404):
+                raise
+            if attempt < max_retries - 1:
+                import time
+                time.sleep(backoff ** attempt)
+    raise last_exc
+
+
 def _read(tab, range_):
     try:
-        svc = _get_service()
-        result = svc.spreadsheets().values().get(
-            spreadsheetId=_get_sheet_id(),
-            range=f"{tab}!{range_}",
-        ).execute()
+        def _call():
+            svc = _get_service()
+            return svc.spreadsheets().values().get(
+                spreadsheetId=_get_sheet_id(),
+                range=f"{tab}!{range_}",
+            ).execute()
+        result = _retry_gapi(_call)
         return result.get("values", [])
     except HttpError as e:
         if e.resp.status in (400, 404):
@@ -83,27 +100,36 @@ def _read(tab, range_):
         raise
 
 def _append(tab, row):
-    try:
+    def _call():
         svc = _get_service()
-        svc.spreadsheets().values().append(
+        return svc.spreadsheets().values().append(
             spreadsheetId=_get_sheet_id(),
             range=f"{tab}!A1",
             valueInputOption="USER_ENTERED",
             body={"values": [row]},
         ).execute()
+    try:
+        _retry_gapi(_call)
     except HttpError as e:
         if e.resp.status in (400, 404):
             raise RuntimeError(f"Google Sheets 工作表「{tab}」不存在，請先建立該工作表") from e
         raise
 
 def _update_cell(tab, cell, value):
-    svc = _get_service()
-    svc.spreadsheets().values().update(
-        spreadsheetId=_get_sheet_id(),
-        range=f"{tab}!{cell}",
-        valueInputOption="USER_ENTERED",
-        body={"values": [[value]]},
-    ).execute()
+    def _call():
+        svc = _get_service()
+        return svc.spreadsheets().values().update(
+            spreadsheetId=_get_sheet_id(),
+            range=f"{tab}!{cell}",
+            valueInputOption="USER_ENTERED",
+            body={"values": [[value]]},
+        ).execute()
+    try:
+        _retry_gapi(_call)
+    except HttpError as e:
+        if e.resp.status in (400, 404):
+            raise RuntimeError(f"Google Sheets 工作表「{tab}」不存在，請先建立該工作表") from e
+        raise
 
 def bg(fn, *args):
     threading.Thread(target=fn, args=args, daemon=True).start()
