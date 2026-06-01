@@ -54,6 +54,13 @@ handler = WebhookHandler(_secret)
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 POINTS_THRESHOLD = int(os.environ.get("POINTS_THRESHOLD", "5"))
 
+MEMBER_SIGNS = {
+    "爸爸": "摩羯",
+    "媽媽": "射手",
+    "姊姊": "雙子",
+    "妹妹": "金牛",
+}
+
 _quiz_state: dict[str, dict] = {}  # group_id -> {question, answer}
 
 # ─── 工具函數 ─────────────────────────────────
@@ -501,6 +508,30 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
 
     if text == "星座":
         reply(reply_token, "請傳「[星座]運勢」\n例：天蠍座運勢、射手運勢")
+        return True
+
+    # ── 今日全員運勢 ──
+    if text in ["今日全員運勢", "全員運勢", "大家的運勢", "家人運勢"]:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {
+                executor.submit(get_horoscope_round_robin, sign): name
+                for name, sign in MEMBER_SIGNS.items()
+            }
+            results = {}
+            for future in as_completed(futures):
+                name = futures[future]
+                results[name] = future.result()
+
+        lines = ["✨ 今日全家運勢\n"]
+        for name, sign in MEMBER_SIGNS.items():
+            data = results.get(name)
+            if data and data.get("description"):
+                desc = call_gemini(f"翻成繁體中文1-2句：{data['description']}")
+                lines.append(f"【{name}】{sign}座\n{desc}\n幸運色：{data.get('color','—')}　數字：{data.get('lucky_number','—')}\n")
+            else:
+                lines.append(f"【{name}】{sign}座\n（資料取得失敗）\n")
+        reply(reply_token, "\n".join(lines))
         return True
 
     # ── 星座配對 ──
@@ -1190,6 +1221,7 @@ def handle_help(reply_token: str, text: str):
 • 天氣 — 今日天氣 + 空氣品質
 • 今天吃什麼 — 隨機世界料理食譜
 • [星座]運勢 — 例：天蠍座運勢
+• 今日全員運勢 — 全家人運勢一次看
 • 出題 — 家庭問答遊戲（答 xxx 作答）
 • 笑話 / 說個笑話 / Chuck Norris
 • 推薦飲料 [名稱] — 飲料食譜
