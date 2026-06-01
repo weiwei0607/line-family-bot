@@ -39,6 +39,7 @@ from api_helpers import (
     get_nasa_apod, translate_text, smart_translate, text_to_speech, save_tts_audio, get_tts_audio,
     get_joke_round_robin, get_horoscope_round_robin, get_news_round_robin,
     search_photo, get_curated_photo, get_holidays,
+    search_gif, get_trending_gif,
     get_wikipedia, make_qr_url, get_cat_image, get_dog_image,
     get_world_time, get_country_info,
     get_starmatch, call_gemini, call_groq, groq_stt,
@@ -641,6 +642,25 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
             reply_image(reply_token, url)
         else:
             reply(reply_token, "圖片載入失敗，待會再試")
+        return True
+
+    # ── GIF 搜尋（GIPHY）──
+    m = re.match(r"^(?:GIF|gif|找GIF|動圖)\s+(.+)$", text, re.IGNORECASE)
+    if m:
+        query = m.group(1).strip()
+        result = search_gif(query)
+        if result and result.get("gif_url"):
+            reply_image_with_text(reply_token, result["still_url"] or result["gif_url"], result["gif_url"])
+        else:
+            reply(reply_token, f"找不到「{query}」的 GIF，試試其他關鍵字")
+        return True
+
+    if text in ["熱門GIF", "隨機GIF", "來個動圖"]:
+        result = get_trending_gif()
+        if result and result.get("gif_url"):
+            reply_image_with_text(reply_token, result["still_url"] or result["gif_url"], result["gif_url"])
+        else:
+            reply(reply_token, "GIF 載入失敗，待會再試")
         return True
 
     # ── 貓咪 / 狗狗圖片 ──

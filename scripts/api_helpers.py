@@ -26,6 +26,7 @@ ALPHA_VANTAGE_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")
 PEXELS_KEY = os.environ.get("PEXELS_KEY", "")
 NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY", "")
 ABSTRACT_KEY = os.environ.get("ABSTRACT_KEY", "")
+GIPHY_KEY = os.environ.get("GIPHY_KEY", "")
 
 QUOTA_MSG = "❌ 今日 API 額度用完了，明天再試試！"
 
@@ -167,892 +168,95 @@ def _cached(key: str, ttl: int, fn: Callable):
 
 # ── WMO 天氣代碼 ──────────────────────────────────
 
-WMO = {
-    0: "☀️ 晴天", 1: "🌤 大致晴", 2: "⛅️ 部分多雲", 3: "☁️ 陰天",
-    45: "🌫 有霧", 48: "🌫 有霧",
-    51: "🌦 毛毛雨", 53: "🌦 毛毛雨", 55: "🌧 小雨",
-    61: "🌧 小雨", 63: "🌧 中雨", 65: "🌧 大雨",
-    71: "🌨 小雪", 73: "🌨 中雪", 75: "❄️ 大雪",
-    80: "🌦 陣雨", 81: "🌧 陣雨", 82: "⛈ 大陣雨",
-    95: "⛈ 雷雨", 96: "⛈ 雷雨夾冰雹", 99: "⛈ 雷雨夾冰雹",
-}
-
-_WEEKDAY_NAMES = ["一", "二", "三", "四", "五", "六", "日"]
-
-
-def _get_uv_index() -> dict | None:
-    """取得 UV 指數（Open-Meteo）"""
-    try:
-        r = requests.get(
-            "https://air-quality-api.open-meteo.com/v1/air-quality",
-            params={"latitude": LAT, "longitude": LON, "current": "uv_index", "timezone": "Asia/Taipei"},
-            timeout=8,
-        )
-        d = r.json()
-        uv = round(d["current"]["uv_index"], 1)
-        if uv >= 8:
-            level = "🔴 極高"
-        elif uv >= 6:
-            level = "🟠 高"
-        elif uv >= 3:
-            level = "🟡 中等"
-        else:
-            level = "🟢 低"
-        return {"uv": uv, "level": level}
-    except Exception:
-        return None
-
-
-def parse_date_offset(text: str) -> tuple[int, str] | None:
-    """從中文文字解析日期偏移，回傳 (offset_days, 描述)"""
-    text = text.replace(" ", "").replace("?", "").replace("？", "")
-
-    # 今天
-    if re.search(r"^(今天|今日|現在)", text) or text in ["今天", "今日"]:
-        return (0, "今天")
-    # 明天
-    if re.search(r"^(明天|明日)", text) or text in ["明天", "明日"]:
-        return (1, "明天")
-    # 後天
-    if re.search(r"^(後天)", text) or text in ["後天"]:
-        return (2, "後天")
-    # 大後天
-    if re.search(r"^(大後天)", text) or text in ["大後天"]:
-        return (3, "大後天")
-
-    # 星期/週/禮拜/周
-    weekday_map = {
-        "一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5,
-        "日": 6, "天": 6,
-        "1": 0, "2": 1, "3": 2, "4": 3, "5": 4, "6": 5, "7": 6,
-    }
-    m = re.search(r"(下?[星期週禮礼拜周])([一二三四五六日天1234567])", text)
-    if m:
-        prefix = m.group(1)
-        day_char = m.group(2)
-        target = weekday_map.get(day_char)
-        if target is not None:
-            today = datetime.now().weekday()
-            diff = (target - today) % 7
-            is_next = prefix.startswith("下")
-            if is_next:
-                offset = diff + 7
-            else:
-                offset = diff
-            name = _WEEKDAY_NAMES[target]
-            desc = f"{'下週' if is_next else '本週'}星期{name}"
-            return (offset, desc)
-
-    return None
-
-
-def _weather_advice(condition: str, rain_prob: int, temp_max: int) -> str:
-    """根據天氣給出門建議"""
-    advice = []
-    if rain_prob >= 60:
-        advice.append("☔ 記得帶傘！")
-    elif rain_prob >= 30:
-        advice.append("🌂 可能會下雨，建議帶傘")
-    if "晴" in condition and temp_max >= 30:
-        advice.append("🧴 天氣炎熱，記得擦防曬")
-    elif "晴" in condition and temp_max >= 28:
-        advice.append("🌞 天氣不錯，注意防曬")
-    if temp_max <= 18:
-        advice.append("🧥 氣溫較低，記得穿暖")
-    return "\n".join(advice) if advice else ""
-
-
-SIGN_MAP = {
-    "牡羊": "aries", "金牛": "taurus", "雙子": "gemini", "巨蟹": "cancer",
-    "獅子": "leo", "處女": "virgo", "天秤": "libra", "天蠍": "scorpio",
-    "射手": "sagittarius", "摩羯": "capricorn", "水瓶": "aquarius", "雙魚": "pisces",
-}
-
-CURRENCY_MAP = {
-    "美金": "USD", "美元": "USD", "日圓": "JPY", "日幣": "JPY",
-    "歐元": "EUR", "英鎊": "GBP", "韓元": "KRW", "韓幣": "KRW",
-    "人民幣": "CNY", "港幣": "HKD", "澳幣": "AUD", "加幣": "CAD",
-}
-
 
 # ── 天氣（Open-Meteo，無需 key，快取 30 分鐘）────────
-
-def get_weather_forecast() -> dict:
-    """取得7天天氣預報 + 目前天氣"""
-    def _fetch():
-        try:
-            r = requests.get(
-                "https://api.open-meteo.com/v1/forecast",
-                params={
-                    "latitude": LAT, "longitude": LON,
-                    "current": "temperature_2m,weathercode,relative_humidity_2m",
-                    "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode",
-                    "timezone": "Asia/Taipei", "forecast_days": 7,
-                },
-                timeout=10,
-            )
-            d = r.json()
-            cur = d["current"]
-            day = d["daily"]
-            forecast = []
-            for i in range(7):
-                code = int(day.get("weathercode", [0]*7)[i])
-                forecast.append({
-                    "condition": WMO.get(code, "天氣不明"),
-                    "temp_max": round(day["temperature_2m_max"][i]),
-                    "temp_min": round(day["temperature_2m_min"][i]),
-                    "rain_prob": round(day["precipitation_probability_max"][i]),
-                })
-            return {
-                "current": {
-                    "condition": WMO.get(int(cur.get("weathercode", 0)), "天氣不明"),
-                    "temp": round(cur["temperature_2m"]),
-                    "humidity": round(cur["relative_humidity_2m"]),
-                },
-                "forecast": forecast,
-            }
-        except Exception as e:
-            return {"error": str(e)}
-    return _cached("weather7", 1800, _fetch) or {"error": "無法取得天氣"}
-
-
-def get_weather() -> dict:
-    """兼容舊接口，回傳今天天氣"""
-    f = get_weather_forecast()
-    if "error" in f:
-        return f
-    today = f["forecast"][0].copy()
-    today["temp"] = f["current"]["temp"]
-    today["humidity"] = f["current"]["humidity"]
-    return today
-
-
-def get_weather_day(offset: int = 0) -> dict | None:
-    """取得指定偏移日期的天氣"""
-    f = get_weather_forecast()
-    if "error" in f:
-        return None
-    if offset < 0 or offset >= len(f["forecast"]):
-        return None
-    return f["forecast"][offset]
-
-
-def format_weather_day(offset: int = 0) -> str:
-    """格式化指定日期的天氣"""
-    day = get_weather_day(offset)
-    if day is None:
-        return "（天氣資料取得失敗）"
-    target = datetime.now() + timedelta(days=offset)
-    date_str = target.strftime("%m/%d")
-    weekday = _WEEKDAY_NAMES[target.weekday()]
-    advice = _weather_advice(day["condition"], day["rain_prob"], day["temp_max"])
-    lines = [
-        f"{day['condition']}　最高 {day['temp_max']}° / 最低 {day['temp_min']}°",
-        f"降雨機率 {day['rain_prob']}%",
-    ]
-    if advice:
-        lines.append(f"\n💡 出門建議：\n{advice}")
-    return f"📅 {date_str}（{weekday}）\n" + "\n".join(lines)
-
-
-def format_weather_rain_check(offset: int, desc: str) -> str:
-    """回答「會不會下雨」"""
-    day = get_weather_day(offset)
-    if day is None:
-        return "（天氣資料取得失敗）"
-    if offset < 0 or offset >= 7:
-        return f"❌ {desc} 超出7天預報範圍，目前只能查未來7天喔"
-    target_date = (datetime.now() + timedelta(days=offset)).strftime("%m/%d")
-    rain_prob = day["rain_prob"]
-    if rain_prob >= 70:
-        rain_msg = f"會下雨喔！🌧 降雨機率高達 {rain_prob}%"
-    elif rain_prob >= 40:
-        rain_msg = f"有可能會下雨 🌦 降雨機率 {rain_prob}%"
-    elif rain_prob >= 20:
-        rain_msg = f"有小機率下雨 ☁️ 降雨機率 {rain_prob}%"
-    else:
-        rain_msg = f"應該不會下雨 ☀️ 降雨機率只有 {rain_prob}%"
-    advice = _weather_advice(day["condition"], day["rain_prob"], day["temp_max"])
-    result = (
-        f"📅 {desc}（{target_date}）\n"
-        f"{rain_msg}\n"
-        f"最高 {day['temp_max']}° / 最低 {day['temp_min']}°　{day['condition']}"
-    )
-    if advice:
-        result += f"\n\n💡 出門建議：\n{advice}"
-    return result
-
-
-def get_aqi() -> dict:
-    def _fetch():
-        try:
-            r = requests.get(
-                "https://air-quality-api.open-meteo.com/v1/air-quality",
-                params={"latitude": LAT, "longitude": LON, "current": "us_aqi,pm2_5"},
-                timeout=10,
-            )
-            d = r.json()["current"]
-            aqi = round(d["us_aqi"])
-            pm25 = round(d["pm2_5"], 1)
-            level = ("良好 😊" if aqi <= 50 else "普通 😐" if aqi <= 100
-                     else "對敏感族群不健康 😷" if aqi <= 150 else "不健康 ⚠️")
-            return {"aqi": aqi, "pm25": pm25, "level": level}
-        except Exception as e:
-            return {"error": str(e)}
-    return _cached("aqi", 1800, _fetch) or {"error": "無法取得 AQI"}
-
-
-def format_weather_block() -> str:
-    w = get_weather()
-    if "error" in w:
-        return "（天氣資料取得失敗）"
-    a = get_aqi()
-    lines = [
-        f"{w['condition']}　{w['temp']}°C",
-        f"最高 {w['temp_max']}° / 最低 {w['temp_min']}°　降雨機率 {w['rain_prob']}%",
-        f"濕度 {w['humidity']}%",
-    ]
-    if "error" not in a:
-        lines.append(f"空氣品質 AQI {a['aqi']}（{a['level']}）PM2.5：{a['pm25']}")
-    return "\n".join(lines)
 
 
 # ── 人生建議（adviceslip，免費無需 key）───────────
 
-def get_advice() -> str:
-    try:
-        r = requests.get("https://api.adviceslip.com/advice", timeout=5)
-        return r.json()["slip"]["advice"]
-    except Exception:
-        return ""
-
 
 # ── 冷知識（uselessfacts，免費無需 key）───────────
-
-def get_fun_fact() -> str:
-    try:
-        r = requests.get(
-            "https://uselessfacts.jsph.pl/api/v2/facts/random",
-            params={"language": "en"}, timeout=8,
-        )
-        return r.json().get("text", "")
-    except Exception:
-        return ""
 
 
 # ── 星座運勢（Aztro 免費，快取 6 小時）──────────────
 
-def get_horoscope(sign_zh: str) -> dict | None:
-    sign_zh = sign_zh.replace("座", "").strip()
-    sign_en = SIGN_MAP.get(sign_zh)
-    if not sign_en:
-        return None
-    def _fetch():
-        try:
-            r = requests.post(
-                f"https://aztro.sameerkumar.website/?sign={sign_en}&day=today",
-                timeout=10,
-            )
-            d = r.json()
-            return {
-                "sign": sign_zh + "座",
-                "description": d.get("description", ""),
-                "mood": d.get("mood", ""),
-                "color": d.get("color", ""),
-                "lucky_number": d.get("lucky_number", ""),
-                "compatibility": d.get("compatibility", ""),
-            }
-        except Exception:
-            return None
-    return _cached(f"horoscope_{sign_en}", 21600, _fetch)
-
 
 # ── 笑話（API-Ninjas 直連）───────────────────────
-
-def get_joke() -> str:
-    if not APININJAS_KEY:
-        return ""
-    try:
-        r = requests.get("https://api.api-ninjas.com/v1/jokes",
-                         headers=_apininjas_headers(), timeout=10)
-        if _check_quota(r):
-            return QUOTA_MSG
-        items = r.json()
-        return items[0].get("joke", "") if items else ""
-    except Exception:
-        return ""
 
 
 # ── 問答題（API-Ninjas 直連）────────────────────
 
-def get_trivia() -> dict | None:
-    if not APININJAS_KEY:
-        return None
-    try:
-        r = requests.get("https://api.api-ninjas.com/v1/trivia",
-                         headers=_apininjas_headers(), timeout=10)
-        if _check_quota(r):
-            return {"_quota": True}
-        items = r.json()
-        return {"question": items[0].get("question", ""), "answer": items[0].get("answer", "")} if items else None
-    except Exception:
-        return None
-
 
 # ── 飲料食譜（API-Ninjas 直連）──────────────────
-
-def get_cocktail(name: str = "") -> dict | None:
-    if not APININJAS_KEY:
-        return None
-    params = {"name": name if name else random.choice(["lemonade", "tea", "smoothie", "juice"])}
-    try:
-        r = requests.get("https://api.api-ninjas.com/v1/cocktail",
-                         headers=_apininjas_headers(), params=params, timeout=10)
-        if _check_quota(r):
-            return {"_quota": True}
-        items = r.json()
-        return items[0] if items else None
-    except Exception:
-        return None
 
 
 # ── 隨機活動（Bored API，免費無需 key）──────────
 
-def get_random_activity() -> dict | None:
-    try:
-        r = requests.get("https://bored-api.appbrewery.com/random", timeout=10)
-        d = r.json()
-        return {"activity": d.get("activity", ""), "participants": d.get("participants", 1), "type": d.get("type", "")}
-    except Exception:
-        return None
-
 
 # ── 運動建議（API-Ninjas 直連）──────────────────
-
-def get_exercise() -> dict | None:
-    if not APININJAS_KEY:
-        return None
-    try:
-        muscles = ["biceps", "triceps", "chest", "back", "shoulders", "legs", "abs"]
-        r = requests.get("https://api.api-ninjas.com/v1/exercises",
-                         headers=_apininjas_headers(),
-                         params={"muscle": random.choice(muscles)},
-                         timeout=10)
-        if not _check_quota(r):
-            items = r.json()
-            return items[0] if items else None
-    except Exception as _exc:
-        logger.warning("API error: %s", _exc)
-    return None
 
 
 # ── 動漫名言（animechan.io，免費無需 key）──────────
 
-def get_anime_quote() -> dict | None:
-    try:
-        r = requests.get("https://animechan.io/api/v1/quotes/random", timeout=10)
-        d = r.json().get("data", {})
-        return {
-            "quote": d.get("content", ""),
-            "anime": d.get("anime", {}).get("name", "") if isinstance(d.get("anime"), dict) else "",
-            "character": d.get("character", {}).get("name", "") if isinstance(d.get("character"), dict) else "",
-        }
-    except Exception:
-        return None
-
 
 # ── AI 圖片生成（Pollinations.ai，完全免費無需 key）
-
-def generate_image(prompt: str) -> str | None:
-    try:
-        encoded = requests.utils.quote(prompt)
-        return f"https://image.pollinations.ai/prompt/{encoded}?width=512&height=512&nologo=true&seed={random.randint(1,9999)}"
-    except Exception:
-        return None
 
 
 # ── 匯率（open.er-api.com，免費無需 key）──────────
 
-def get_currency(from_curr: str, to_curr: str = "TWD") -> dict | None:
-    from_curr = CURRENCY_MAP.get(from_curr, from_curr.upper())
-    to_curr = CURRENCY_MAP.get(to_curr, to_curr.upper())
-    try:
-        r = requests.get(
-            f"https://open.er-api.com/v6/latest/{from_curr}",
-            timeout=10,
-        )
-        if r.status_code != 200:
-            return None
-        rate = r.json().get("rates", {}).get(to_curr)
-        return {"from": from_curr, "to": to_curr, "rate": round(rate, 4)} if rate else None
-    except Exception:
-        return None
-
 
 # ── 金價（Yahoo Finance 非官方 API，免費無需 key）──
-
-def get_gold_price() -> dict | None:
-    try:
-        r = requests.get(
-            "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10,
-        )
-        price = r.json()["chart"]["result"][0]["meta"]["regularMarketPrice"]
-        silver_r = requests.get(
-            "https://query1.finance.yahoo.com/v8/finance/chart/SI%3DF",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10,
-        )
-        silver = silver_r.json()["chart"]["result"][0]["meta"]["regularMarketPrice"]
-        return {"gold_usd": round(price, 2), "silver_usd": round(silver, 2)}
-    except Exception:
-        return None
 
 
 # ── 股票（Alpha Vantage，每天 25 次）────────────
 
-_EXCHANGE_SUFFIX = {
-    "tw": ".TW", "twse": ".TW", "otc": ".TWO",
-}
-
-def get_stock(symbol: str) -> dict | None:
-    if not ALPHA_VANTAGE_KEY:
-        return None
-    symbol = symbol.upper().strip()
-    def _fetch():
-        try:
-            r = requests.get(
-                "https://www.alphavantage.co/query",
-                params={"function": "GLOBAL_QUOTE", "symbol": symbol, "apikey": ALPHA_VANTAGE_KEY},
-                timeout=12,
-            )
-            q = r.json().get("Global Quote", {})
-            if not q or not q.get("05. price"):
-                return None
-            return {
-                "symbol": q.get("01. symbol", symbol),
-                "price": float(q["05. price"]),
-                "change": float(q.get("09. change", 0)),
-                "change_pct": q.get("10. change percent", "0%").strip(),
-                "volume": int(q.get("06. volume", 0)),
-                "prev_close": float(q.get("08. previous close", 0)),
-            }
-        except Exception as e:
-            logger.warning("[stock] %s", e)
-            return None
-    return _cached(f"stock_{symbol}", 300, _fetch)
-
 
 # ── 幣價（CoinGecko，免費無需 key）──────────────
-
-_COIN_ID_MAP = {
-    "BTC": "bitcoin", "ETH": "ethereum", "USDT": "tether",
-    "BNB": "binancecoin", "SOL": "solana", "XRP": "ripple",
-    "DOGE": "dogecoin", "ADA": "cardano", "TRX": "tron",
-    "AVAX": "avalanche-2", "DOT": "polkadot", "LINK": "chainlink",
-    "比特幣": "bitcoin", "以太幣": "ethereum", "以太坊": "ethereum",
-    "狗狗幣": "dogecoin", "瑞波幣": "ripple",
-}
-
-def get_crypto(symbol: str) -> dict | None:
-    key = symbol.upper().strip()
-    coin_id = _COIN_ID_MAP.get(key) or _COIN_ID_MAP.get(symbol) or symbol.lower()
-    def _fetch():
-        try:
-            r = requests.get(
-                "https://api.coingecko.com/api/v3/simple/price",
-                params={"ids": coin_id, "vs_currencies": "usd,twd", "include_24hr_change": "true"},
-                timeout=10,
-            )
-            data = r.json().get(coin_id)
-            if not data:
-                return None
-            return {
-                "symbol": key,
-                "coin_id": coin_id,
-                "usd": data.get("usd", 0),
-                "twd": data.get("twd", 0),
-                "change_24h": round(data.get("usd_24h_change", 0), 2),
-            }
-        except Exception as e:
-            logger.warning("[crypto] %s", e)
-            return None
-    return _cached(f"crypto_{coin_id}", 300, _fetch)
 
 
 # ── 電影（TMDB）─────────────────────────────────
 
-def get_movie(title: str = "") -> dict | None:
-    return get_tmdb_movie(title)
-
-
-def get_tmdb_movie(title: str = "") -> dict | None:
-    if not TMDB_KEY:
-        return None
-    try:
-        if title:
-            r = requests.get(
-                "https://api.themoviedb.org/3/search/movie",
-                params={"api_key": TMDB_KEY, "query": title, "language": "zh-TW", "region": "TW"},
-                timeout=10,
-            )
-            if _check_quota(r):
-                return {"_quota": True}
-            results = r.json().get("results", [])
-            movie = results[0] if results else None
-        else:
-            r = requests.get(
-                "https://api.themoviedb.org/3/movie/popular",
-                params={"api_key": TMDB_KEY, "language": "zh-TW", "region": "TW"},
-                timeout=10,
-            )
-            if _check_quota(r):
-                return {"_quota": True}
-            results = r.json().get("results", [])
-            movie = random.choice(results[:20]) if results else None
-        if not movie:
-            return None
-        poster = f"https://image.tmdb.org/t/p/w500{movie['poster_path']}" if movie.get("poster_path") else None
-        return {
-            "id": movie.get("id"),
-            "title": movie.get("title", ""),
-            "original_title": movie.get("original_title", ""),
-            "overview": (movie.get("overview") or "")[:300],
-            "rating": round(movie.get("vote_average", 0), 1),
-            "year": (movie.get("release_date") or "")[:4],
-            "poster_url": poster,
-            "_tmdb": True,
-        }
-    except Exception:
-        return None
-
 
 # ── 串流平台（TMDB watch/providers）──────────────
-
-def get_streaming(title: str) -> list:
-    return get_tmdb_streaming_by_title(title)
-
-
-def get_tmdb_streaming_by_title(title: str) -> list:
-    if not TMDB_KEY:
-        return []
-    try:
-        r = requests.get(
-            "https://api.themoviedb.org/3/search/movie",
-            params={"api_key": TMDB_KEY, "query": title, "language": "zh-TW"},
-            timeout=10,
-        )
-        if _check_quota(r):
-            return [{"_quota": True}]
-        results = r.json().get("results", [])
-        if not results:
-            return []
-        movie_id = results[0]["id"]
-        r2 = requests.get(
-            f"https://api.themoviedb.org/3/movie/{movie_id}/watch/providers",
-            params={"api_key": TMDB_KEY},
-            timeout=10,
-        )
-        if _check_quota(r2):
-            return [{"_quota": True}]
-        tw = r2.json().get("results", {}).get("TW", {})
-        providers = []
-        seen = set()
-        for ptype in ["flatrate", "free", "rent", "buy"]:
-            for p in tw.get(ptype, []):
-                name = p.get("provider_name", "")
-                if name and name not in seen:
-                    providers.append({"service": name, "type": ptype})
-                    seen.add(name)
-        return providers[:8]
-    except Exception:
-        return []
 
 
 # ── BMI 計算（本地計算）──────────────────────────
 
-def calc_bmi(height_cm: float, weight_kg: float) -> dict:
-    bmi = round(weight_kg / (height_cm / 100) ** 2, 1)
-    if bmi < 18.5:
-        cat = "體重過輕 😟"
-    elif bmi < 24:
-        cat = "正常範圍 😊"
-    elif bmi < 27:
-        cat = "過重 😐"
-    elif bmi < 30:
-        cat = "輕度肥胖 😬"
-    else:
-        cat = "中重度肥胖 ⚠️"
-    return {"bmi": bmi, "category": cat}
-
 
 # ── 食物熱量（API-Ninjas 直連）──────────────────
-
-def get_nutrition(query: str) -> list[dict]:
-    if not APININJAS_KEY:
-        return []
-    try:
-        r = requests.get("https://api.api-ninjas.com/v1/nutrition",
-                         headers=_apininjas_headers(), params={"query": query}, timeout=10)
-        if _check_quota(r):
-            return [{"_quota": True}]
-        return r.json().get("items", [])
-    except Exception:
-        return []
 
 
 # ── 食譜搜尋（TheMealDB，免費無需 key）──────────
 
-def search_recipes_by_ingredients(ingredients: str) -> list[dict]:
-    try:
-        first = ingredients.split(",")[0].split("、")[0].strip()
-        r = requests.get(
-            "https://www.themealdb.com/api/json/v1/1/filter.php",
-            params={"i": first},
-            timeout=10,
-        )
-        meals = r.json().get("meals") or []
-        return [{"title": m["strMeal"]} for m in meals[:5]]
-    except Exception:
-        return []
-
 
 # ── Chuck Norris 笑話（免費無需 key）────────────
-
-def get_chuck_norris() -> str:
-    try:
-        r = requests.get("https://api.chucknorris.io/jokes/random", timeout=8)
-        return r.json().get("value", "")
-    except Exception:
-        return ""
 
 
 # ── 激勵名言（API-Ninjas 優先，fallback type.fit）
 
-def get_motivation_quote() -> dict | None:
-    try:
-        if APININJAS_KEY:
-            r = requests.get("https://api.api-ninjas.com/v1/quotes",
-                             headers=_apininjas_headers(), timeout=8)
-            if _check_quota(r):
-                return {"_quota": True}
-            items = r.json()
-            if items:
-                return {"text": items[0].get("quote", ""), "author": items[0].get("author", "Unknown")}
-        r = requests.get("https://type.fit/api/quotes", timeout=8)
-        quotes = r.json()
-        if quotes:
-            q = random.choice(quotes)
-            return {"text": q.get("text", ""), "author": q.get("author") or "Unknown"}
-        return None
-    except Exception:
-        return None
-
 
 # ── 電影台詞（Gemini 負責）──────────────────────
-
-def get_movie_quote() -> dict | None:
-    return None  # webhook.py 有 Gemini fallback
 
 
 # ── 天文冷知識（API-Ninjas 直連）────────────────
 
-def get_astronomy_fact() -> str:
-    if not APININJAS_KEY:
-        return ""
-    try:
-        r = requests.get("https://api.api-ninjas.com/v1/facts",
-                         headers=_apininjas_headers(), params={"category": "science"}, timeout=10)
-        if _check_quota(r):
-            return QUOTA_MSG
-        items = r.json()
-        return items[0].get("fact", "") if items else ""
-    except Exception:
-        return ""
-
 
 # ── 消耗熱量（API-Ninjas 直連）──────────────────
-
-def get_calories_burned(activity: str, weight_kg: float = 60, duration_min: int = 30) -> list[dict]:
-    if not APININJAS_KEY:
-        return []
-    params = {"activity": activity, "weight": str(weight_kg), "duration": str(duration_min)}
-    try:
-        r = requests.get("https://api.api-ninjas.com/v1/caloriesburned",
-                         headers=_apininjas_headers(), params=params, timeout=10)
-        if _check_quota(r):
-            return [{"_quota": True}]
-        return r.json()
-    except Exception:
-        return []
 
 
 # ── 日文字典（Jisho，免費無需 key）──────────────
 
-JLPT_N5_KANJI = [
-    "日", "月", "火", "水", "木", "金", "土", "山", "川", "田",
-    "人", "口", "目", "耳", "手", "足", "上", "下", "中", "大",
-    "小", "一", "二", "三", "四", "五", "六", "七", "八", "九",
-    "十", "百", "千", "年", "時", "間", "学", "校", "先", "生",
-    "友", "家", "会", "社", "車", "電", "駅", "道", "食", "飲",
-    "見", "聞", "話", "読", "書", "来", "行", "国", "語", "本",
-    "花", "犬", "猫", "魚", "鳥", "空", "海", "雨", "雪", "風",
-]
-
-JLPT_N5_WORDS = [
-    "食べる", "飲む", "行く", "来る", "見る", "聞く", "話す", "読む", "書く", "買う",
-    "起きる", "寝る", "食べ物", "飲み物", "学校", "電車", "友達", "家族", "先生",
-    "毎日", "今日", "明日", "昨日", "今年", "来年", "去年", "時間", "場所",
-    "日本語", "英語", "中国語", "言葉", "勉強", "仕事", "休み", "旅行",
-    "電話", "新聞", "雑誌", "料理", "音楽", "映画", "写真", "天気",
-]
-
-
-def get_jisho(word: str) -> dict | None:
-    try:
-        r = requests.get(
-            "https://jisho.org/api/v1/search/words",
-            params={"keyword": word},
-            timeout=10,
-        )
-        data = r.json().get("data", [])
-        if not data:
-            return None
-        entry = data[0]
-        readings = entry.get("japanese", [{}])
-        senses = entry.get("senses", [{}])
-        meanings_en = []
-        for s in senses[:3]:
-            meanings_en.extend(s.get("english_definitions", [])[:2])
-        return {
-            "word": readings[0].get("word") or readings[0].get("reading", word),
-            "reading": readings[0].get("reading", ""),
-            "meanings_en": meanings_en[:4],
-            "jlpt": entry.get("jlpt", []),
-            "common": entry.get("is_common", False),
-        }
-    except Exception:
-        return None
-
-
-def get_kanji_info(char: str) -> dict | None:
-    try:
-        r = requests.get(f"https://kanjiapi.dev/v1/kanji/{char}", timeout=8)
-        if r.status_code != 200:
-            return None
-        d = r.json()
-        return {
-            "kanji": d.get("kanji", ""),
-            "meanings": d.get("meanings", [])[:4],
-            "kun_readings": d.get("kun_readings", [])[:3],
-            "on_readings": d.get("on_readings", [])[:3],
-            "jlpt": d.get("jlpt"),
-            "stroke_count": d.get("stroke_count"),
-        }
-    except Exception:
-        return None
-
-
-def get_random_jlpt_word() -> dict | None:
-    word = random.choice(JLPT_N5_WORDS)
-    return get_jisho(word)
-
 
 # ── 西班牙文字典（Free Dictionary API，免費無需 key）
-
-def get_spanish_dict(word: str) -> dict | None:
-    try:
-        r = requests.get(
-            f"https://api.dictionaryapi.dev/api/v2/entries/es/{word}",
-            timeout=8,
-        )
-        if r.status_code != 200:
-            return None
-        data = r.json()
-        if not data or isinstance(data, dict):
-            return None
-        entry = data[0]
-        meanings = entry.get("meanings", [])
-        definitions = []
-        for m in meanings[:2]:
-            for d in m.get("definitions", [])[:2]:
-                df = d.get("definition", "")
-                if df:
-                    definitions.append(df)
-        return {
-            "word": entry.get("word", word),
-            "phonetic": entry.get("phonetic", ""),
-            "definitions": definitions[:3],
-        }
-    except Exception:
-        return None
 
 
 # ── TheMealDB（免費無需 key）──────────────────────
 
-def get_meal_random() -> dict | None:
-    try:
-        r = requests.get(
-            "https://www.themealdb.com/api/json/v1/1/random.php",
-            timeout=10,
-        )
-        meals = r.json().get("meals", [])
-        if not meals:
-            return None
-        m = meals[0]
-        ingredients = []
-        for i in range(1, 21):
-            ing = (m.get(f"strIngredient{i}") or "").strip()
-            meas = (m.get(f"strMeasure{i}") or "").strip()
-            if ing:
-                ingredients.append(f"{ing} {meas}".strip())
-        return {
-            "name": m.get("strMeal", ""),
-            "category": m.get("strCategory", ""),
-            "area": m.get("strArea", ""),
-            "instructions": (m.get("strInstructions") or "")[:400],
-            "ingredients": ingredients[:8],
-            "youtube": m.get("strYoutube", ""),
-        }
-    except Exception:
-        return None
-
 
 # ── Open Trivia DB（免費無需 key）────────────────
 
-def get_open_trivia() -> dict | None:
-    try:
-        r = requests.get(
-            "https://opentdb.com/api.php",
-            params={"amount": 1, "type": "multiple"},
-            timeout=10,
-        )
-        results = r.json().get("results", [])
-        if not results:
-            return None
-        q = results[0]
-        return {
-            "question": _html.unescape(q.get("question", "")),
-            "answer": _html.unescape(q.get("correct_answer", "")),
-            "category": q.get("category", ""),
-        }
-    except Exception:
-        return None
-
 
 # ── NumbersAPI（免費無需 key）────────────────────
-
-def get_number_fact() -> str:
-    try:
-        r = requests.get(
-            "http://numbersapi.com/random/trivia",
-            params={"json": "true"},
-            timeout=8,
-        )
-        return r.json().get("text", "")
-    except Exception:
-        return ""
 
 
 # ── 翻譯（MyMemory 免費優先，失敗再用 Gemini）──────
@@ -1207,29 +411,6 @@ def smart_translate(text: str, target: str = "zh-TW") -> str:
 
 # ── 笑話輪班（API-Ninjas → JokeAPI.dev → Chuck Norris）
 
-def _get_jokeapi_dev() -> str | None:
-    try:
-        r = requests.get(
-            "https://v2.jokeapi.dev/joke/Any",
-            params={"safe-mode": "", "blacklistFlags": "nsfw,racist,sexist,explicit"},
-            timeout=8,
-        )
-        d = r.json()
-        if d.get("type") == "single":
-            return d.get("joke", "")
-        return f"{d.get('setup', '')}\n{d.get('delivery', '')}"
-    except Exception:
-        return None
-
-
-def get_joke_round_robin() -> str:
-    result = _fallback_call(
-        lambda: get_joke(),
-        _get_jokeapi_dev,
-        lambda: get_chuck_norris(),
-    )
-    return result or call_groq("說一個適合全家的台灣笑話，繁體中文") or "今天笑話庫休息，請自行搞笑 😅"
-
 
 # ── Rewriter（RapidAPI）─────────────────────────────
 
@@ -1280,349 +461,91 @@ def check_grammar(text: str) -> dict | None:
 
 # ── Hotels Com 找飯店（RapidAPI）───────────────────
 
-def search_hotels(query: str) -> str:
-    """搜尋城市飯店"""
-    key = os.environ.get("RAPIDAPI_KEY", "")
-    if not key:
-        return ""
-    try:
-        r = requests.get(
-            "https://hotels-com-provider.p.rapidapi.com/v2/regions",
-            headers={"x-rapidapi-key": key, "x-rapidapi-host": "hotels-com-provider.p.rapidapi.com"},
-            params={"query": query, "locale": "zh_TW", "domain": "TW"},
-            timeout=10,
-        )
-        if r.status_code == 200:
-            d = r.json()
-            items = d.get("data", [])[:5]
-            if not items:
-                return f"找不到「{query}」的飯店資訊"
-            lines = [f"🏨 「{query}」搜尋結果：\n"]
-            for item in items:
-                names = item.get("regionNames", {})
-                full = names.get("fullName", "")
-                short = names.get("shortName", "")
-                t = item.get("type", "")
-                lines.append(f"• {short or full} ({t})")
-            return "\n".join(lines)
-    except Exception as e:
-        logger.warning("[hotels] %s", e)
-    return ""
-
 
 # ── World Airports 找機場（RapidAPI）───────────────
-
-def search_airports(query: str) -> str:
-    """搜尋機場"""
-    key = os.environ.get("RAPIDAPI_KEY", "")
-    if not key:
-        return ""
-    try:
-        r = requests.post(
-            "https://airports.p.rapidapi.com/v1/airports",
-            headers={"x-rapidapi-key": key, "x-rapidapi-host": "airports.p.rapidapi.com", "Content-Type": "application/json"},
-            json={"search": query},
-            timeout=10,
-        )
-        if r.status_code == 200:
-            items = r.json()[:5]
-            if not items:
-                return f"找不到「{query}」的機場"
-            lines = [f"✈️ 「{query}」機場搜尋結果：\n"]
-            for item in items:
-                name = item.get("name", "")
-                iata = item.get("iata", "")
-                icao = item.get("icao", "")
-                city = item.get("city", "")
-                country = item.get("country_name", "")
-                code_str = f" ({iata}/{icao})" if iata or icao else ""
-                lines.append(f"• {name}{code_str} — {city}, {country}")
-            return "\n".join(lines)
-    except Exception as e:
-        logger.warning("[airports] %s", e)
-    return ""
 
 
 # ── 星座輪班（Aztro → Gemini，快取 6 小時）──────
 
-def _get_horoscope_gemini(sign_zh: str) -> dict | None:
-    sign_zh = sign_zh.replace("座", "").strip()
-    text = call_gemini(
-        f"請用繁體中文給出今日{sign_zh}座的星座運勢，包含：運勢描述（2句）、幸運色、幸運數字、配對星座。"
-        f"回覆格式：描述|幸運色|幸運數字|配對"
-    )
-    if not text:
-        return None
-    parts = text.split("|")
-    return {
-        "sign": sign_zh + "座",
-        "description": parts[0].strip() if len(parts) > 0 else text,
-        "color": parts[1].strip() if len(parts) > 1 else "—",
-        "lucky_number": parts[2].strip() if len(parts) > 2 else "—",
-        "compatibility": parts[3].strip() if len(parts) > 3 else "—",
-        "mood": "—",
-    }
-
-def get_horoscope_round_robin(sign: str) -> dict | None:
-    result = get_horoscope(sign)
-    if result:
-        return result
-    return _get_horoscope_gemini(sign)
-
 
 # ── 星座配對（Gemini）────────────────────────────
-
-def get_starmatch(sign1: str, sign2: str) -> dict | None:
-    text = call_gemini(
-        f"請分析{sign1}座和{sign2}座的配對，用繁體中文回覆。"
-        f"格式：相容度分數(0-100)|一句描述。只給這兩部分，用|分隔。"
-    )
-    if not text:
-        return None
-    parts = text.split("|")
-    return {
-        "sign1": sign1,
-        "sign2": sign2,
-        "compatibility": parts[0].strip() if parts else "?",
-        "description": parts[1].strip() if len(parts) > 1 else text,
-    }
 
 
 # ── 圖片搜尋（Pexels，200 req/hour）────────────
 
-def search_photo(query: str) -> str | None:
-    if not PEXELS_KEY:
+
+# ── GIF（GIPHY，100 req/hour）───────────────────
+
+def search_gif(query: str) -> dict | None:
+    if not GIPHY_KEY:
         return None
     try:
         r = requests.get(
-            "https://api.pexels.com/v1/search",
-            headers={"Authorization": PEXELS_KEY},
-            params={"query": query, "per_page": 5, "orientation": "landscape"},
+            "https://api.giphy.com/v1/gifs/search",
+            params={"api_key": GIPHY_KEY, "q": query, "limit": 5, "rating": "g"},
             timeout=10,
         )
-        photos = r.json().get("photos", [])
-        if photos:
-            photo = random.choice(photos[:5])
-            return photo["src"].get("large2x") or photo["src"].get("large")
+        data = r.json().get("data", [])
+        if not data:
+            return None
+        gif = random.choice(data[:5])
+        images = gif.get("images", {})
+        return {
+            "gif_url": images.get("original", {}).get("url", ""),
+            "still_url": images.get("original_still", {}).get("url", ""),
+        }
     except Exception as e:
-        logger.warning("[pexels] %s", e)
+        logger.warning("[giphy] %s", e)
     return None
 
 
-def get_curated_photo() -> str | None:
-    if not PEXELS_KEY:
+def get_trending_gif() -> dict | None:
+    if not GIPHY_KEY:
         return None
     def _fetch():
         try:
             r = requests.get(
-                "https://api.pexels.com/v1/curated",
-                headers={"Authorization": PEXELS_KEY},
-                params={"per_page": 10},
+                "https://api.giphy.com/v1/gifs/trending",
+                params={"api_key": GIPHY_KEY, "limit": 10, "rating": "g"},
                 timeout=10,
             )
-            photos = r.json().get("photos", [])
-            if photos:
-                photo = random.choice(photos)
-                return photo["src"].get("large2x") or photo["src"].get("large")
+            data = r.json().get("data", [])
+            if not data:
+                return None
+            gif = random.choice(data[:10])
+            images = gif.get("images", {})
+            return {
+                "gif_url": images.get("original", {}).get("url", ""),
+                "still_url": images.get("original_still", {}).get("url", ""),
+            }
         except Exception as e:
-            logger.warning("[pexels curated] %s", e)
+            logger.warning("[giphy trending] %s", e)
         return None
-    return _cached("pexels_curated", 3600, _fetch)
+    return _cached("giphy_trending", 1800, _fetch)
 
 
 # ── 新聞（NewsAPI 優先，fallback Google RSS，快取 1 小時）
 
-def _get_news_newsapi() -> list[dict] | None:
-    if not NEWSAPI_KEY:
-        return None
-    try:
-        r = requests.get(
-            "https://newsapi.org/v2/top-headlines",
-            params={"country": "tw", "pageSize": 5, "apiKey": NEWSAPI_KEY},
-            timeout=10,
-        )
-        articles = r.json().get("articles", [])
-        if not articles:
-            return None
-        return [
-            {"title": a.get("title", ""), "url": a.get("url", ""), "desc": a.get("description", "")}
-            for a in articles if a.get("title")
-        ]
-    except Exception as e:
-        logger.warning("[newsapi] %s", e)
-    return None
-
-
-def _get_news_rss() -> list[dict] | None:
-    try:
-        import xml.etree.ElementTree as ET
-        r = requests.get(
-            "https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10,
-        )
-        root = ET.fromstring(r.content)
-        items = root.findall(".//item")[:5]
-        news = []
-        for item in items:
-            title = item.findtext("title", "")
-            if " - " in title:
-                title = title.rsplit(" - ", 1)[0]
-            news.append({"title": title, "url": item.findtext("link", ""), "desc": ""})
-        return news or None
-    except Exception:
-        return None
-
-
-def get_news_round_robin() -> list[dict]:
-    def _fetch():
-        return _get_news_newsapi() or _get_news_rss()
-    return _cached("news", 3600, _fetch) or []
-
 
 # ── 節假日（Abstract API，每月 1000 次）─────────
-
-def get_holidays(year: int = None, month: int = None, day: int = None, country: str = "TW") -> list[dict]:
-    if not ABSTRACT_KEY:
-        return []
-    now = datetime.now()
-    y = year or now.year
-    m = month or now.month
-    d = day or now.day
-    cache_key = f"holidays_{country}_{y}_{m}_{d}"
-    def _fetch():
-        try:
-            r = requests.get(
-                "https://holidays.abstractapi.com/v1/",
-                params={"api_key": ABSTRACT_KEY, "country": country, "year": y, "month": m, "day": d},
-                timeout=10,
-            )
-            data = r.json()
-            if isinstance(data, list):
-                return data or []
-            return []
-        except Exception as e:
-            logger.warning("[holidays] %s", e)
-            return []
-    return _cached(cache_key, 86400, _fetch) or []
 
 
 # ── 維基百科（中文 Wikipedia API，免費無需 key）──
 
-def get_wikipedia(query: str) -> dict | None:
-    for lang in ("zh", "en"):
-        try:
-            r = requests.get(
-                f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(query)}",
-                headers={"User-Agent": "line-family-bot/1.0"},
-                timeout=10,
-            )
-            if r.status_code == 200:
-                d = r.json()
-                return {
-                    "title": d.get("title", ""),
-                    "extract": d.get("extract", ""),
-                    "url": d.get("content_urls", {}).get("mobile", {}).get("page", ""),
-                }
-        except Exception as e:
-            logger.warning("[wiki] %s", e)
-    return None
-
 
 # ── QR Code（api.qrserver.com，免費無需 key）────
-
-def make_qr_url(data: str, size: int = 300) -> str:
-    return f"https://api.qrserver.com/v1/create-qr-code/?size={size}x{size}&data={requests.utils.quote(data)}"
 
 
 # ── 貓咪圖片（The Cat API，免費無需 key）────────
 
-def get_cat_image() -> str | None:
-    try:
-        r = requests.get("https://api.thecatapi.com/v1/images/search", timeout=8)
-        items = r.json()
-        if items:
-            return items[0].get("url")
-    except Exception as e:
-        logger.warning("[cat] %s", e)
-    return None
-
 
 # ── 狗狗圖片（Dog CEO API，免費無需 key）────────
-
-def get_dog_image() -> str | None:
-    try:
-        r = requests.get("https://dog.ceo/api/breeds/image/random", timeout=8)
-        return r.json().get("message")
-    except Exception as e:
-        logger.warning("[dog] %s", e)
-    return None
 
 
 # ── 世界時間（WorldTimeAPI，免費無需 key）────────
 
-_TZ_MAP = {
-    "東京": "Asia/Tokyo", "日本": "Asia/Tokyo",
-    "首爾": "Asia/Seoul", "韓國": "Asia/Seoul",
-    "北京": "Asia/Shanghai", "上海": "Asia/Shanghai", "中國": "Asia/Shanghai",
-    "香港": "Asia/Hong_Kong",
-    "新加坡": "Asia/Singapore",
-    "曼谷": "Asia/Bangkok", "泰國": "Asia/Bangkok",
-    "台北": "Asia/Taipei", "台灣": "Asia/Taipei",
-    "杜拜": "Asia/Dubai",
-    "莫斯科": "Europe/Moscow",
-    "倫敦": "Europe/London", "英國": "Europe/London",
-    "巴黎": "Europe/Paris", "法國": "Europe/Paris",
-    "柏林": "Europe/Berlin", "德國": "Europe/Berlin",
-    "紐約": "America/New_York", "美東": "America/New_York",
-    "洛杉磯": "America/Los_Angeles", "美西": "America/Los_Angeles",
-    "雪梨": "Australia/Sydney", "澳洲": "Australia/Sydney",
-    "奧克蘭": "Pacific/Auckland", "紐西蘭": "Pacific/Auckland",
-}
-
-def get_world_time(city: str) -> dict | None:
-    tz = _TZ_MAP.get(city) or city
-    try:
-        r = requests.get(f"https://worldtimeapi.org/api/timezone/{tz}", timeout=8)
-        if r.status_code != 200:
-            return None
-        d = r.json()
-        dt_str = d.get("datetime", "")[:19].replace("T", " ")
-        return {"city": city, "tz": tz, "datetime": dt_str}
-    except Exception as e:
-        logger.warning("[worldtime] %s", e)
-    return None
-
 
 # ── 國家資訊（RestCountries，免費無需 key）──────
-
-def get_country_info(name: str) -> dict | None:
-    try:
-        r = requests.get(
-            f"https://restcountries.com/v3.1/name/{requests.utils.quote(name)}",
-            timeout=10,
-        )
-        if r.status_code != 200:
-            return None
-        c = r.json()[0]
-        langs = ", ".join(c.get("languages", {}).values())
-        currencies = ", ".join(
-            f"{v.get('name', k)}({v.get('symbol', '')})"
-            for k, v in c.get("currencies", {}).items()
-        )
-        return {
-            "name": c.get("name", {}).get("official", name),
-            "capital": ", ".join(c.get("capital", [])),
-            "region": c.get("region", ""),
-            "population": c.get("population", 0),
-            "area": c.get("area", 0),
-            "languages": langs,
-            "currencies": currencies,
-            "flag": c.get("flag", ""),
-        }
-    except Exception as e:
-        logger.warning("[country] %s", e)
-    return None
 
 
 # ── TTS 音檔暫存管理 ─────────────────────────────
@@ -1667,3 +590,10 @@ def get_tts_audio(filename: str) -> tuple[bytes, str] | None:
     except Exception as _exc:
         logger.warning("API error: %s", _exc)
     return None
+
+from weather_api import *
+from entertainment_api import *
+from finance_api import *
+from health_api import *
+from language_api import *
+from travel_api import *
