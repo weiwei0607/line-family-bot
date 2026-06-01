@@ -11,7 +11,7 @@ from api_helpers import (
     get_random_jlpt_word, get_kanji_info, get_meal_random, get_random_activity,
     get_exercise, get_anime_quote, get_joke_round_robin,
     smart_translate, call_gemini,
-    JLPT_N5_KANJI,
+    JLPT_N5_KANJI, QUOTA_MSG,
 )
 
 logger = logging.getLogger(__name__)
@@ -107,6 +107,9 @@ def _cmd_trivia_help(reply):
 
 def _cmd_joke(reply):
     joke_en = get_joke_round_robin()
+    if joke_en == QUOTA_MSG:
+        reply(QUOTA_MSG)
+        return
     if joke_en and any(ord(c) > 127 for c in joke_en[:20]):
         reply(f"😂 {joke_en}")
     elif joke_en:
@@ -173,6 +176,9 @@ def _cmd_motivation(reply):
 
 def _cmd_astronomy(reply):
     fact_en = get_astronomy_fact()
+    if fact_en == QUOTA_MSG:
+        reply(QUOTA_MSG)
+        return
     if fact_en:
         reply(f"🔭 {smart_translate(fact_en)}")
     else:
@@ -197,6 +203,9 @@ def _cmd_number_fact(reply):
 
 def _cmd_news(reply):
     items = get_news_round_robin()
+    if items == QUOTA_MSG:
+        reply(QUOTA_MSG)
+        return
     if items:
         lines = ["📰 今日頭條\n"]
         for i, it in enumerate(items[:5], 1):
