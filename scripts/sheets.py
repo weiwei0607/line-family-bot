@@ -272,18 +272,22 @@ def get_member_weekly_chore_points(member: str, chore_name: str) -> float:
                 pass
     return total
 
-def complete_chore(chore_name: str, member: str) -> dict | None:
-    """家事可重複做，直接查名稱記點，不改狀態欄位"""
+def find_chore(chore_name: str) -> dict | None:
+    """查詢家事名稱對應的設定（不寫入）"""
     chore_name = CHORE_ALIASES.get(chore_name, chore_name)
-    chores = get_chores()  # 不限狀態，只要名稱符合就算
+    chores = get_chores()
     matched = next(
         (c for c in chores if chore_name in c["name"] or c["name"] in chore_name),
         None,
     )
+    return matched
+
+def complete_chore(chore_name: str, member: str) -> dict | None:
+    """家事可重複做，查名稱、檢查上限、回傳結果（不寫入 Sheets）"""
+    matched = find_chore(chore_name)
     if not matched:
         return None
 
-    # 檢查每週上限
     cap = WEEKLY_CAPS.get(matched["name"])
     if cap is not None:
         already = get_member_weekly_chore_points(member, matched["name"])
@@ -292,10 +296,13 @@ def complete_chore(chore_name: str, member: str) -> dict | None:
             matched["cap"] = cap
             return matched
 
-    _append("點數記錄", [_today_str(), member, matched["name"], matched["points"], _now_str()])
-    _sc_del("weekly_points")  # 點數有更新，讓快取失效
     matched["capped"] = False
     return matched
+
+def log_chore_points(member: str, chore_name: str, points: float):
+    """將家事點數寫入 Sheets（可放 background thread）"""
+    _append("點數記錄", [_today_str(), member, chore_name, points, _now_str()])
+    _sc_del("weekly_points")
 
 def add_chore(name: str, points: float = 1, category: str = "一般"):
     _append("家事清單", [name, points, category, "待完成", "", ""])
@@ -464,22 +471,31 @@ def get_shopping_list(only_pending=True) -> list[dict]:
 def add_shopping(item_name: str, member: str):
     _append("購物清單", [item_name, member, _now_str(), "未買", "", ""])
 
-def complete_shopping(item_name: str, member: str) -> bool:
+def find_shopping_item(item_name: str) -> dict | None:
+    """查詢購物項目（不寫入）"""
     items = get_shopping_list(only_pending=True)
-    matched = next(
+    return next(
         (it for it in items if item_name in it["name"] or it["name"] in item_name),
         None,
     )
+
+def complete_shopping(item_name: str, member: str) -> bool:
+    """標記購物項目為已買（寫入 Sheets）"""
+    matched = find_shopping_item(item_name)
     if not matched:
         return False
+    mark_shopping_done(matched["row"], member)
+    return True
+
+def mark_shopping_done(row: int, member: str):
+    """更新購物清單狀態為已買（可放 background thread）"""
     svc = _get_service()
     svc.spreadsheets().values().update(
         spreadsheetId=_get_sheet_id(),
-        range=f"購物清單!D{matched['row']}:F{matched['row']}",
+        range=f"購物清單!D{row}:F{row}",
         valueInputOption="USER_ENTERED",
         body={"values": [["已買", member, _now_str()]]},
     ).execute()
-    return True
 
 
 # ──────────────────────────────────────────────

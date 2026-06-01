@@ -15,39 +15,19 @@ from flask import Flask, request, abort, g
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
-    Configuration, ApiClient, MessagingApi,
+    Configuration,
     ReplyMessageRequest, TextMessage, ImageMessage,
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, AudioMessageContent
 from line_push import (
     reply_text as reply,
-    reply_image,
-    reply_audio,
-    reply_image_with_text,
-    push_text,
     push_messages,
 )
 from api_helpers import (
     format_weather_block, format_weather_day, format_weather_rain_check,
-    parse_date_offset, get_advice, get_horoscope, get_fun_fact,
-    search_recipes_by_ingredients, get_nutrition,
-    get_joke, get_trivia, get_cocktail, get_random_activity,
-    get_exercise, get_anime_quote, generate_image,
-    get_currency, get_gold_price, get_stock, get_crypto, get_movie, get_streaming, calc_bmi,
-    get_chuck_norris, get_motivation_quote, get_movie_quote,
-    get_astronomy_fact, get_calories_burned,
-    get_jisho, get_kanji_info, get_random_jlpt_word,
-    get_spanish_dict, get_meal_random, get_open_trivia, get_number_fact,
-    get_nasa_apod, translate_text, smart_translate, text_to_speech, save_tts_audio, get_tts_audio,
-    get_joke_round_robin, get_horoscope_round_robin, get_news_round_robin,
-    search_photo, get_curated_photo, get_holidays,
-    search_gif, get_trending_gif,
-    get_wikipedia, make_qr_url, get_cat_image, get_dog_image,
-    get_world_time, get_country_info,
-    get_starmatch, call_gemini, call_groq, groq_stt,
-    rewrite_text, check_grammar, search_hotels, search_airports,
-    get_aqi, SIGN_MAP,
-    JLPT_N5_KANJI, QUOTA_MSG, TMDB_KEY,
+    parse_date_offset, get_trivia, get_open_trivia,
+    smart_translate, text_to_speech, save_tts_audio, get_tts_audio,
+    call_gemini, groq_stt, get_aqi,
 )
 
 from sheets import (
@@ -59,8 +39,18 @@ from sheets import (
     add_declutter, get_declutter_list, complete_declutter,
     add_income, get_declutter_income, cancel_last_record,
     pay_fine, get_outstanding_fines,
-    add_tidy_log, format_tidy_summary, _detect_area,
     rename_latest_tidy_member,
+)
+
+from handlers import (
+    _handle_entertainment,
+    _handle_finance,
+    _handle_horoscope,
+    _handle_images,
+    _handle_language,
+    _handle_tidy,
+    _handle_tts,
+    _handle_utils,
 )
 
 app = Flask(__name__)
@@ -122,43 +112,6 @@ def serve_tts(filename: str):
     from flask import Response
     return Response(data[0], mimetype=data[1])
 
-
-def _q(val, reply_token: str) -> bool:
-    """如果 val 是 quota exceeded 標記，回覆錯誤訊息並回傳 True。"""
-    if val == QUOTA_MSG:
-        reply(reply_token, QUOTA_MSG)
-        return True
-    if isinstance(val, dict) and val.get("_quota"):
-        reply(reply_token, QUOTA_MSG)
-        return True
-    if isinstance(val, list) and val and isinstance(val[0], dict) and val[0].get("_quota"):
-        reply(reply_token, QUOTA_MSG)
-        return True
-    return False
-
-
-def _send_movie(reply_token: str, movie: dict):
-    """發送電影資訊，TMDB 版有海報圖片。"""
-    if movie.get("_tmdb"):
-        title = movie.get("title", "")
-        orig = movie.get("original_title", "")
-        year = movie.get("year", "")
-        rating = movie.get("rating", "")
-        overview = movie.get("overview", "") or ""
-        caption = (f"🎬 {title}"
-                   + (f"（{orig}）" if orig and orig != title else "")
-                   + (f"  {year}\n" if year else "\n")
-                   + f"⭐ {rating} 分\n\n"
-                   + overview[:200])
-        poster = movie.get("poster_url")
-        if poster:
-            reply_image_with_text(reply_token, poster, caption)
-        else:
-            reply(reply_token, caption)
-    else:
-        reply(reply_token, f"🎬 {movie.get('title', '')}（{movie.get('year', '')}）\n\n"
-                           f"⭐ {movie.get('rating', '')}　排名第 {movie.get('rank', '')} 名\n\n"
-                           f"{movie.get('description', '')[:150]}")
 
 # ─── 指令處理 ─────────────────────────────────
 
@@ -522,590 +475,39 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
         return True
 
     # ── 收拾紀錄 ──
-    if text in ["收拾", "整理"]:
-        reply(reply_token, format_tidy_summary())
+    if _handle_tidy(reply_token, text, member, source, configuration):
         return True
 
-    m_tidy = re.match(r"^(收拾|整理)\s*(.+)", text)
-    if m_tidy:
-        content = m_tidy.group(2).strip()
-        # 嘗試解析區域
-        area = _detect_area(content)
-        # 如果沒偵測到區域，看文字開頭是否標註
-        if area == "未分類":
-            if content.startswith("自己 ") or content.startswith("我的 "):
-                area = "自己"
-                content = content[3:].strip()
-            elif content.startswith("公共 ") or content.startswith("公用 "):
-                area = "公共"
-                content = content[3:].strip()
-        # 優先使用 handle_message 已解析的 member，沒有再嘗試抓 profile
-        if not member or member not in ["爸爸", "媽媽", "姊姊", "妹妹"]:
-            try:
-                with ApiClient(configuration) as api_client:
-                    profile = MessagingApi(api_client).get_profile(getattr(source, "user_id", ""))
-                    member = profile.display_name
-            except Exception as _exc:
-                logger.warning("Silent error: %s", _exc)
-        if not member or member not in ["爸爸", "媽媽", "姊姊", "妹妹"]:
-            member = "家人"
-        add_tidy_log(member, area, content)
-        area_emoji = "🏠" if area == "自己" else "🛋" if area == "公共" else "📦"
-        reply(reply_token, f"✅ 已記錄！\n{area_emoji} {member} → {content}（{area}區域）\n\n傳「收拾」查看今天全家紀錄")
-        return True
-
-
-    # ── 星座運勢（輪班：Aztro → Daily Advanced → Daily Basic → Rashifal → Horostory → Astrologer）──
-    m = re.match(r"^(牡羊|金牛|雙子|巨蟹|獅子|處女|天秤|天蠍|射手|摩羯|水瓶|雙魚)座?運勢?$", text)
-    if m:
-        data = get_horoscope_round_robin(m.group(1))
-        if data:
-            desc = smart_translate(data["description"])
-            source = data.get("source", "")
-            source_tag = f"（{source}）" if source else ""
-            reply(reply_token, f"✨ {data['sign']} 今日運勢{source_tag}\n\n{desc}\n\n"
-                               f"心情：{data['mood']}　幸運色：{data['color']}\n"
-                               f"幸運數字：{data['lucky_number']}　配對：{data['compatibility']}座")
-        else:
-            reply(reply_token, "星座資料取得失敗，待會再試試")
-        return True
-
-    if text == "星座":
-        reply(reply_token, "請傳「[星座]運勢」\n例：天蠍座運勢、射手運勢")
-        return True
-
-    # ── 今日全員運勢 ──
-    if text in ["今日全員運勢", "全員運勢", "大家的運勢", "家人運勢"]:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = {
-                executor.submit(get_horoscope_round_robin, sign): name
-                for name, sign in MEMBER_SIGNS.items()
-            }
-            results = {}
-            for future in as_completed(futures):
-                name = futures[future]
-                results[name] = future.result()
-
-        def _translate_one(args):
-            name, sign = args
-            data = results.get(name)
-            if data and data.get("description"):
-                desc = call_gemini(f"翻成繁體中文1-2句：{data['description']}")
-                return name, sign, desc, data.get("color", "—"), data.get("lucky_number", "—")
-            return name, sign, None, "—", "—"
-
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            translated = list(executor.map(_translate_one, MEMBER_SIGNS.items()))
-
-        lines = ["✨ 今日全家運勢\n"]
-        for name, sign, desc, color, lucky in translated:
-            if desc:
-                lines.append(f"【{name}】{sign}座\n{desc}\n幸運色：{color}　數字：{lucky}\n")
-            else:
-                lines.append(f"【{name}】{sign}座\n（資料取得失敗）\n")
-        reply(reply_token, "\n".join(lines))
-        return True
-
-    # ── 星座配對 ──
-    m = re.match(r"^(牡羊|金牛|雙子|巨蟹|獅子|處女|天秤|天蠍|射手|摩羯|水瓶|雙魚)\s*配\s*(牡羊|金牛|雙子|巨蟹|獅子|處女|天秤|天蠍|射手|摩羯|水瓶|雙魚)$", text)
-    if m:
-        s1, s2 = m.group(1), m.group(2)
-        data = get_starmatch(SIGN_MAP.get(s1, s1), SIGN_MAP.get(s2, s2))
-        if data:
-            desc_zh = smart_translate(data["description"])
-            reply(reply_token, f"💖 {s1}座 × {s2}座 配對指數\n\n"
-                               f"分數：{data['compatibility']}\n\n{desc_zh}")
-        else:
-            reply(reply_token, "配對資料取得失敗，待會再試試")
-        return True
-
-    if text == "配對":
-        reply(reply_token, "請傳「[星座]配[星座]」\n例：天蠍配金牛、雙子配射手")
+    # ── 星座運勢 ──
+    if _handle_horoscope(reply_token, text, MEMBER_SIGNS):
         return True
 
     # ── 問答遊戲 ──
     if _handle_quiz(reply_token, text, group_id):
         return True
 
-
-    # ── 推薦飲料 ──
-    m = re.match(r"^(?:推薦飲料|飲料)\s*(.*)$", text)
-    if m:
-        name = m.group(1).strip()
-        data = get_cocktail(name)
-        if data:
-            ingr = "、".join(data.get("ingredients", [])[:5])
-            instr_raw = (data.get("instructions") or "")[:250]
-            instr = smart_translate(instr_raw)
-            reply(reply_token, f"🍹 {data.get('name', '')}\n\n食材：{ingr}\n\n{instr}")
-        else:
-            reply(reply_token, call_gemini("推薦一款適合家庭的飲料或果汁，給出名稱和簡單做法"))
+    # ── 娛樂 ──
+    if _handle_entertainment(reply_token, text):
         return True
 
-
-
-
-    # ── 小花畫圖（Pollinations.ai，免費無限）──
-    m = re.match(r"^(?:小花畫|畫)\s+(.+)$", text)
-    if m:
-        prompt = m.group(1).strip()
-        url = generate_image(prompt)
-        if url:
-            reply_image(reply_token, url)
-        else:
-            reply(reply_token, "🎨 圖片生成失敗，請再試一次")
+    # ── 圖片 ──
+    if _handle_images(reply_token, text):
         return True
 
-    # ── 找圖（Pexels）──
-    m = re.match(r"^找圖\s+(.+)$", text)
-    if m:
-        query = m.group(1).strip()
-        url = search_photo(query)
-        if url:
-            reply_image(reply_token, url)
-        else:
-            reply(reply_token, f"找不到「{query}」的圖片，試試其他關鍵字")
+    # ── 工具 ──
+    if _handle_utils(reply_token, text):
         return True
 
-    if text in ["隨機圖片", "來張圖"]:
-        url = get_curated_photo()
-        if url:
-            reply_image(reply_token, url)
-        else:
-            reply(reply_token, "圖片載入失敗，待會再試")
+    # ── 金融 ──
+    if _handle_finance(reply_token, text):
         return True
 
-    # ── GIF 搜尋（GIPHY）──
-    m = re.match(r"^(?:GIF|gif|找GIF|動圖)\s+(.+)$", text, re.IGNORECASE)
-    if m:
-        query = m.group(1).strip()
-        result = search_gif(query)
-        if result and result.get("gif_url"):
-            reply_image_with_text(reply_token, result["still_url"] or result["gif_url"], result["gif_url"])
-        else:
-            reply(reply_token, f"找不到「{query}」的 GIF，試試其他關鍵字")
+    # ── 語言 ──
+    if _handle_language(reply_token, text):
         return True
-
-    if text in ["熱門GIF", "隨機GIF", "來個動圖"]:
-        result = get_trending_gif()
-        if result and result.get("gif_url"):
-            reply_image_with_text(reply_token, result["still_url"] or result["gif_url"], result["gif_url"])
-        else:
-            reply(reply_token, "GIF 載入失敗，待會再試")
-        return True
-
-    # ── 貓咪 / 狗狗圖片 ──
-    if text in ["貓咪圖", "貓貓", "來隻貓", "貓圖", "🐱"]:
-        url = get_cat_image()
-        if url:
-            reply_image(reply_token, url)
-        else:
-            reply(reply_token, "貓咪暫時跑走了，待會再試 🐱")
-        return True
-
-    if text in ["柴柴", "來隻柴柴", "柴犬圖", "柴犬"]:
-        url = get_dog_image("shiba")
-        if url:
-            reply_image(reply_token, url)
-        else:
-            reply(reply_token, "柴柴暫時跑走了，待會再試 🐕")
-        return True
-
-    if text in ["狗狗圖", "狗狗", "來隻狗", "狗圖", "🐶"]:
-        url = get_dog_image()
-        if url:
-            reply_image(reply_token, url)
-        else:
-            reply(reply_token, "狗狗暫時跑走了，待會再試 🐶")
-        return True
-
-    # ── QR Code ──
-    m = re.match(r"^(?:QR|qr|QR碼|二維碼)\s+(.+)$", text, re.IGNORECASE)
-    if m:
-        qr_url = make_qr_url(m.group(1).strip())
-        reply_image(reply_token, qr_url)
-        return True
-
-    # ── 維基百科 ──
-    m = re.match(r"^(?:百科|維基|查一下|wiki)\s+(.+)$", text, re.IGNORECASE)
-    if m:
-        query = m.group(1).strip()
-        info = get_wikipedia(query)
-        if info and info.get("extract"):
-            reply(reply_token, f"📖 {info['title']}\n\n{info['extract'][:300]}")
-        else:
-            reply(reply_token, f"📖 {query}\n\n{call_gemini(f'用繁體中文簡短介紹「{query}」，2-3句。')}")
-        return True
-
-    # ── 世界時間 ──
-    m = re.match(r"^(?:幾點了|現在幾點|時間)\s+(.+)$", text)
-    if m:
-        city = m.group(1).strip()
-        info = get_world_time(city)
-        if info:
-            reply(reply_token, f"🕐 {city}現在時間\n\n{info['datetime']}")
-        else:
-            reply(reply_token, f"找不到「{city}」的時區，試試：東京、倫敦、紐約、曼谷")
-        return True
-
-    # ── 國家資訊 ──
-    m = re.match(r"^(?:查國家|國家)\s+(.+)$", text)
-    if m:
-        name = m.group(1).strip()
-        info = get_country_info(name)
-        if info:
-            pop = f"{info['population']:,}"
-            area = f"{info['area']:,.0f}" if info.get("area") else "—"
-            lines = [
-                f"{info.get('flag', '')} {info['name']}\n",
-                f"首都：{info['capital'] or '—'}",
-                f"地區：{info['region']}",
-                f"人口：{pop}",
-                f"面積：{area} km²",
-                f"語言：{info['languages'] or '—'}",
-                f"貨幣：{info['currencies'] or '—'}",
-            ]
-            reply(reply_token, "\n".join(lines))
-        else:
-            reply(reply_token, f"找不到「{name}」的資料，試試英文名稱")
-        return True
-
-    # ── 匯率 ──
-    m = re.match(r"^匯率\s+(\S+)(?:\s+(\S+))?$", text)
-    if m:
-        from_c, to_c = m.group(1), m.group(2) or "TWD"
-        result = get_currency(from_c, to_c)
-        if _q(result, reply_token): return True
-        if result and result.get("rate"):
-            reply(reply_token, f"💱 匯率\n\n1 {result['from']} = {result['rate']} {result['to']}")
-        else:
-            reply(reply_token, "匯率查詢失敗，請確認幣別代碼（如 USD JPY EUR）")
-        return True
-
-    # ── 金價 ──
-    if text in ["金價", "今日金價", "黃金價格"]:
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=2) as ex:
-            f_gold = ex.submit(get_gold_price)
-            f_twd = ex.submit(get_currency, "USD", "TWD")
-            data = f_gold.result()
-            twd = f_twd.result()
-        if _q(data, reply_token): return True
-        if data and data.get("gold_usd"):
-            rate = twd["rate"] if twd and twd.get("rate") and not twd.get("_quota") else 31
-            gold_twd = round(float(data["gold_usd"]) * rate)
-            lines = [
-                f"🪙 今日金價\n",
-                f"黃金：${data['gold_usd']} USD/盎司",
-                f"約 NT$ {gold_twd:,} 元/盎司",
-            ]
-            if data.get("silver_usd"):
-                lines.append(f"白銀：${data['silver_usd']} USD/盎司")
-            reply(reply_token, "\n".join(lines))
-        else:
-            reply(reply_token, "金價查詢失敗，請稍後再試")
-        return True
-
-    # ── 股票 ──
-    m = re.match(r"^股票\s+(\S+)$", text, re.IGNORECASE)
-    if m:
-        symbol = m.group(1).upper()
-        data = get_stock(symbol)
-        if _q(data, reply_token): return True
-        if data:
-            arrow = "🔺" if data["change"] >= 0 else "🔻"
-            sign = "+" if data["change"] >= 0 else ""
-            lines = [
-                f"📈 {data['symbol']} 股價\n",
-                f"現價：${data['price']:,.2f}",
-                f"漲跌：{arrow} {sign}{data['change']:.2f} ({data['change_pct']})",
-                f"前收：${data['prev_close']:,.2f}",
-                f"成交量：{data['volume']:,}",
-                f"\n⏱ 資料每 5 分鐘更新",
-            ]
-            reply(reply_token, "\n".join(lines))
-        else:
-            reply(reply_token, f"找不到 {symbol} 的股價，請確認代碼（如 AAPL、TSLA、2330.TW）")
-        return True
-
-    # ── 幣價 ──
-    m = re.match(r"^幣價\s+(\S+)$", text, re.IGNORECASE)
-    if m:
-        symbol = m.group(1)
-        data = get_crypto(symbol)
-        if data:
-            arrow = "🔺" if data["change_24h"] >= 0 else "🔻"
-            sign = "+" if data["change_24h"] >= 0 else ""
-            lines = [
-                f"🪙 {data['symbol'].upper()} 幣價\n",
-                f"美元：${data['usd']:,.2f} USD",
-                f"台幣：NT$ {data['twd']:,.0f}",
-                f"24h：{arrow} {sign}{data['change_24h']}%",
-                f"\n⏱ 資料每 5 分鐘更新",
-            ]
-            reply(reply_token, "\n".join(lines))
-        else:
-            reply(reply_token, f"找不到「{symbol}」的幣價，試試 BTC ETH DOGE SOL 等")
-        return True
-
-    # ── 電影 ──
-    if text in ["推薦電影", "今晚看什麼", "電影推薦", "看電影"]:
-        movie = get_movie()
-        if _q(movie, reply_token): return True
-        if movie:
-            _send_movie(reply_token, movie)
-        else:
-            reply(reply_token, call_gemini("推薦一部適合全家看的電影，給出片名、年份、一句理由"))
-        return True
-
-    m = re.match(r"^電影\s+(.+)$", text)
-    if m:
-        title = m.group(1).strip()
-        movie = get_movie(title)
-        if _q(movie, reply_token): return True
-        if movie:
-            _send_movie(reply_token, movie)
-        else:
-            reply(reply_token, f"找不到「{title}」，試試其他關鍵字")
-        return True
-
-    # ── 哪裡看 ──
-    m = re.match(r"^哪裡看\s+(.+)$", text)
-    if m:
-        title = m.group(1).strip()
-        opts = get_streaming(title)
-        if _q(opts, reply_token): return True
-        if opts:
-            type_zh = {"flatrate": "訂閱", "free": "免費", "rent": "租借", "buy": "購買"}
-            lines = [f"📺 「{title}」台灣可觀看平台：\n"]
-            for o in opts:
-                t = type_zh.get(o.get("type", ""), "")
-                lines.append(f"• {o['service']}" + (f"（{t}）" if t else ""))
-            reply(reply_token, "\n".join(lines))
-        else:
-            reply(reply_token, f"找不到「{title}」在台灣的串流資訊")
-        return True
-
-    # ── BMI ──
-    m = re.match(r"^BMI\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)$", text, re.IGNORECASE)
-    if m:
-        h, w = float(m.group(1)), float(m.group(2))
-        result = calc_bmi(h, w)
-        reply(reply_token, f"⚖️ BMI 計算\n\n身高 {h}cm / 體重 {w}kg\n\nBMI：{result['bmi']}\n{result['category']}")
-        return True
-
-    if text in ["BMI", "計算BMI", "我的BMI"]:
-        reply(reply_token, "請傳「BMI 身高 體重」\n例：BMI 165 55")
-        return True
-
-    # ── 食譜搜尋 ──
-    m = re.match(r"^食譜\s+(.+)$", text)
-    if m:
-        results = search_recipes_by_ingredients(m.group(1).strip())
-        if results:
-            lines = [f"🍳 食譜推薦：\n"]
-            for r in results[:3]:
-                lines.append(f"• {r.get('title', '')}")
-            reply(reply_token, "\n".join(lines))
-        else:
-            reply(reply_token, call_gemini(f"根據食材「{m.group(1)}」推薦一道家常料理和做法"))
-        return True
-
-    # ── 熱量查詢 ──
-    m = re.match(r"^熱量\s+(.+)$", text)
-    if m:
-        food = m.group(1).strip()
-        items = get_nutrition(food)
-        if items:
-            lines = [f"🔥 熱量查詢：{food}\n"]
-            for it in items[:3]:
-                lines.append(
-                    f"• {it.get('name','')}（{it.get('serving_size_g','')}g）"
-                    f"：{round(it.get('calories',0))} 卡　"
-                    f"蛋白質 {round(it.get('protein_g',0))}g　脂肪 {round(it.get('fat_total_g',0))}g"
-                )
-            reply(reply_token, "\n".join(lines))
-        else:
-            reply(reply_token, "查不到，試試英文食物名稱")
-        return True
-
-
-
-
-
-
-    # ── 消耗熱量 ──
-    m = re.match(r"^消耗熱量\s+(.+?)(?:\s+(\d+)分鐘?)?$", text)
-    if m:
-        activity = m.group(1).strip()
-        duration = int(m.group(2)) if m.group(2) else 30
-        items = get_calories_burned(activity, duration_min=duration)
-        if items:
-            lines = [f"🏃 消耗熱量：{activity}（{duration}分鐘）\n"]
-            for it in items[:3]:
-                cal = it.get("calories_per_hour", 0)
-                total = round(cal * duration / 60)
-                lines.append(f"• {it.get('name', activity)}：約 {total} 卡")
-            reply(reply_token, "\n".join(lines))
-        else:
-            reply(reply_token, call_gemini(f"請告訴我做「{activity}」{duration}分鐘大約消耗多少卡路里"))
-        return True
-
-    # ── NASA 每日天文圖 ──
-    if text in ["今日宇宙", "宇宙圖片", "NASA", "天文圖", "宇宙"]:
-        apod = get_nasa_apod()
-        if _q(apod, reply_token): return True
-        if apod and apod.get("_error"):
-            reply(reply_token, f"🌌 {apod['_error']}")
-            return True
-        if apod:
-            title_zh = smart_translate(apod['title'])
-            explain_zh = call_gemini(
-                f"翻成繁體中文，100字以內，保持有趣：{apod['explanation']}"
-            )
-            caption = f"🔭 {title_zh}（{apod['date']}）\n\n{explain_zh}"
-            if apod["media_type"] == "image" and apod.get("hdurl"):
-                reply_image_with_text(reply_token, apod["hdurl"], caption)
-            else:
-                reply(reply_token, caption + (f"\n\n▶️ {apod['url']}" if apod.get("url") else ""))
-        else:
-            reply(reply_token, "🌌 NASA 暫時無法連線，請稍後再試")
-        return True
-
-
-    # ── 日文查詢 ──
-    m = re.match(r"^(?:日文|查日文|日語)\s+(.+)$", text)
-    if m:
-        word = m.group(1).strip()
-        data = get_jisho(word)
-        if data:
-            jlpt = f"  JLPT {data['jlpt'][0].upper()}" if data.get("jlpt") else ""
-            common = "  ★常用" if data.get("common") else ""
-            meanings_zh = smart_translate(", ".join(data["meanings_en"]))
-            lines = [f"🇯🇵 {data['word']}（{data['reading']}）{jlpt}{common}\n",
-                     f"意思：{meanings_zh}"]
-            reply(reply_token, "\n".join(lines))
-        else:
-            reply(reply_token, call_gemini(f"用繁體中文解釋日文單字「{word}」的意思和讀音"))
-        return True
-
-
-    # ── 漢字查詢 ──
-    m = re.match(r"^漢字\s+([^\s])$", text)
-    if m:
-        char = m.group(1)
-        data = get_kanji_info(char)
-        if data:
-            jlpt = f"JLPT N{data['jlpt']}" if data.get("jlpt") else "—"
-            on = "、".join(data["on_readings"]) or "—"
-            kun = "、".join(data["kun_readings"]) or "—"
-            meanings = "、".join(data["meanings"]) or "—"
-            reply(reply_token,
-                  f"🈶 漢字：{data['kanji']}\n\n"
-                  f"音讀：{on}\n"
-                  f"訓讀：{kun}\n"
-                  f"意思：{meanings}\n"
-                  f"筆畫：{data['stroke_count']}　{jlpt}")
-        else:
-            reply(reply_token, call_gemini(f"用繁體中文解釋日文漢字「{char}」的讀音和意思"))
-        return True
-
-
-    # ── 西班牙文查詢 ──
-    m = re.match(r"^(?:西文|查西文|西班牙文)\s+(.+)$", text)
-    if m:
-        word = m.group(1).strip()
-        data = get_spanish_dict(word)
-        if data and data.get("definitions"):
-            defs = "\n".join(f"• {d}" for d in data["definitions"])
-            phonetic = f"  [{data['phonetic']}]" if data.get("phonetic") else ""
-            defs_zh = smart_translate(defs)
-            reply(reply_token,
-                  f"🇪🇸 {data['word']}{phonetic}\n\n{defs_zh}")
-        else:
-            reply(reply_token, call_gemini(
-                f"用繁體中文解釋西班牙文單字「{word}」的意思、詞性和一個例句"
-            ))
-        return True
-
-
-
-    # ── 翻譯 ──
-    m = re.match(r"^(?:翻譯|翻|translate)\s*(?:成?([\w\-]+)\s+)?(.+)", text, re.IGNORECASE)
-    if m and m.group(2):
-        target = (m.group(1) or "zh-TW").strip().lower()
-        to_translate = m.group(2).strip()
-        lang_aliases = {
-            "中文": "zh-TW", "繁中": "zh-TW", "繁體中文": "zh-TW",
-            "簡中": "zh-CN", "簡體中文": "zh-CN",
-            "英文": "en", "英": "en", "english": "en",
-            "日文": "ja", "日": "ja", "japanese": "ja",
-            "韓文": "ko", "韓": "ko", "korean": "ko",
-            "西文": "es", "西班牙文": "es", "spanish": "es",
-            "法文": "fr", "法": "fr", "french": "fr",
-            "德文": "de", "德": "de", "german": "de",
-            "泰文": "th", "泰": "th", "thai": "th",
-            "越文": "vi", "越南文": "vi", "vietnamese": "vi",
-            "印尼文": "id", "indonesian": "id",
-        }
-        target = lang_aliases.get(target, target)
-        lang_display = {
-            "zh-TW": "繁體中文", "zh-CN": "簡體中文", "en": "英文",
-            "ja": "日文", "ko": "韓文", "es": "西班牙文", "fr": "法文",
-            "de": "德文", "th": "泰文", "vi": "越南文", "id": "印尼文",
-        }.get(target, target)
-        result = translate_text(to_translate, target)
-        reply(reply_token, f"🌐 {lang_display}翻譯：\n\n{result}")
-        return True
-
-    if text in ["翻譯", "translate"]:
-        reply(reply_token, "請傳「翻譯 [文字]」或「翻譯成英文 [文字]」\n例：翻譯成日文 你好")
-        return True
-
-    # ── 節假日 ──
-    m = re.match(r"^節日(?:\s+(\d{1,2})[/／](\d{1,2}))?$", text)
-    if m or text in ["今天節日", "今日節日", "今天什麼節", "今天是什麼節日", "什麼節日"]:
-        if m and m.group(1):
-            from datetime import datetime as _dt
-            month, day = int(m.group(1)), int(m.group(2))
-            year = _dt.now().year
-            holidays = get_holidays(year=year, month=month, day=day)
-            date_str = f"{month}/{day}"
-        else:
-            from datetime import datetime as _dt
-            now = _dt.now()
-            holidays = get_holidays()
-            date_str = f"{now.month}/{now.day}"
-        if holidays:
-            lines = [f"🎌 {date_str} 的節日\n"]
-            for h in holidays:
-                name = h.get("name", "")
-                h_type = h.get("type", "")
-                lines.append(f"• {name}（{h_type}）" if h_type else f"• {name}")
-            reply(reply_token, "\n".join(lines))
-        else:
-            reply(reply_token, f"📅 {date_str} 沒有台灣國定假日")
-        return True
-
 
     # ── 念出來（TTS）──
-    m = re.match(r"^(?:念|唸|說|讀)\s+(.+)", text)
-    if m:
-        to_speak = m.group(1).strip()
-        tts_result = text_to_speech(to_speak, "zh-TW")
-        if tts_result:
-            audio_bytes, mime = tts_result
-            fname = save_tts_audio(audio_bytes, mime)
-            duration = min(len(to_speak) * 300 + 1000, 60000)
-            base_url = os.environ.get("RENDER_EXTERNAL_URL", "")
-            if base_url:
-                audio_url = f"{base_url}/tts/{fname}"
-                reply_audio(reply_token, audio_url, duration)
-            else:
-                reply(reply_token, "🔊 需要設定 RENDER_EXTERNAL_URL 才能發送語音")
-        else:
-            reply(reply_token, "🔊 語音功能目前無法使用（RapidAPI 免費版不支援）")
+    if _handle_tts(reply_token, text):
         return True
 
     return False
