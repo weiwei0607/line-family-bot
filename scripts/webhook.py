@@ -127,6 +127,9 @@ def handle_chores(reply_token: str, member: str, text: str):
         elif result:
             pts = result["points"]
             pts_str = f"{pts:.2f}".rstrip('0').rstrip('.')
+            # ⚠️ CRITICAL FIX: actually log the points to Sheets
+            from sheets import log_chore_points
+            log_chore_points(member or "不知道誰", result["name"], pts)
             summary = format_weekly_summary()
             reply(reply_token,
                   f"✅ {member or '你'} 完成了「{result['name']}」！獲得 {pts_str} 點 🎉\n\n{summary}")
@@ -546,7 +549,8 @@ def handle_admin(reply_token: str, source, text: str):
             return True
         if user_id and name:
             bg(register_member, user_id, name)
-            _member_cache[user_id] = name
+            with _member_lock:
+                _member_cache[user_id] = name
             reply(reply_token, f"好的！以後叫你「{name}」😊\n"
                                f"完成家事時傳「完成 家事名稱」就會記在你名下囉")
         return True
@@ -886,14 +890,6 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
     ):
         return
 
-    # 被 @ 提及時 AI 回答
-    if hasattr(source, "mention") and source.mention:
-        answer = call_gemini(
-            f"你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。\n\n問題：{text}"
-        )
-        reply(reply_token, answer)
-        return
-
     # 拼字容錯：短指令找最接近的
     _KNOWN_COMMANDS = [
         "家事清單", "點數", "我的點數", "購物清單", "帳目", "欠款",
@@ -926,6 +922,15 @@ def handle_message(event: MessageEvent):
         return
 
     member = _resolve_member(user_id) if user_id else ""
+
+    # 被 @ 提及時直接 AI 回答（LINE SDK v3: mention 在 message 裡，不在 source 裡）
+    if hasattr(event.message, "mention") and event.message.mention:
+        answer = call_gemini(
+            f"你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。\n\n問題：{text}"
+        )
+        reply(reply_token, answer)
+        return
+
     _process_text_message(reply_token, text, event.source, member)
 
 
