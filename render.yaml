@@ -2,7 +2,7 @@ services:
   - type: web
     name: line-family-bot
     runtime: python
-    pythonVersion: "3.11.0"
+    pythonVersion: "3.11"
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn -w 2 -b 0.0.0.0:$PORT app:app
     envVars:
@@ -22,3 +22,19 @@ services:
         sync: false
       - key: POINTS_THRESHOLD
         value: '5'
+      - key: LINE_GROUP_ID
+        sync: false
+      - key: RAPIDAPI_KEY
+        sync: false
+      - key: NASA_API_KEY
+        sync: false
+      - key: TMDB_API_KEY
+        sync: false
+      - key: APININJAS_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: RENDER_EXTERNAL_URL
+        sync: false

@@ -9,7 +9,7 @@ from api_helpers import (
     get_exercise, get_anime_quote, get_horoscope, get_movie, get_tmdb_movie,
     get_random_activity, get_cocktail, get_meal_random, get_open_trivia,
     get_advice, get_movie_quote, get_chuck_norris, get_number_fact,
-    get_trivia, get_nasa_apod, translate_text, SIGN_MAP,
+    get_nasa_apod, translate_text, SIGN_MAP,
 )
 
 dose_bp = Blueprint("dose", __name__, url_prefix="/dose")
@@ -63,8 +63,15 @@ def dose_anime():
 @dose_bp.route("/horoscope/<sign>", methods=["GET"])
 def dose_horoscope(sign: str):
     # 支援中文或英文星座名
-    sign_en = SIGN_MAP.get(sign, sign.lower())
-    h = get_horoscope(sign_en)
+    sign = sign.strip()
+    if sign in SIGN_MAP:
+        # 傳入的是中文
+        h = get_horoscope(sign)
+    else:
+        # 傳入的可能是英文，反向查找中文名
+        _SIGN_REVERSE = {v: k for k, v in SIGN_MAP.items()}
+        sign_zh = _SIGN_REVERSE.get(sign.lower())
+        h = get_horoscope(sign_zh) if sign_zh else None
     return _json(h)
 
 

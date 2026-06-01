@@ -4,7 +4,6 @@ LINE 家庭群機器人 webhook
 
 import os
 import re
-import json
 import difflib
 import requests
 from flask import Flask, request, abort
@@ -1359,6 +1358,7 @@ def handle_help(reply_token: str, text: str):
 # ─── Webhook 入口 ─────────────────────────────
 
 @app.route("/")
+@app.route("/health")
 def health():
     return "OK", 200
 

@@ -516,7 +516,7 @@ def complete_declutter(item_name: str, method: str, member: str, amount: int = 0
         spreadsheetId=_get_sheet_id(),
         range=f"斷捨離!D{matched['row']}:H{matched['row']}",
         valueInputOption="USER_ENTERED",
-        body={"values": [[method, amount if amount else "", member, _now_str(), ""]]},
+        body={"values": [[method, "", amount if amount else "", member, _now_str()]]},
     ).execute()
     matched["method"] = method
     matched["amount"] = amount

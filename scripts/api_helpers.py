@@ -8,6 +8,8 @@ import re
 import html as _html
 import random
 import time
+
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "")
 import io
 import requests
 from datetime import datetime, timedelta
