@@ -16,7 +16,7 @@ from linebot.v3.messaging import (
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, AudioMessageContent
 from api_helpers import (
     format_weather_block, get_advice, get_horoscope, get_fun_fact,
-    search_recipes_by_ingredients, get_nutrition, get_movie_by_genre,
+    search_recipes_by_ingredients, get_nutrition,
     get_joke, get_trivia, get_cocktail, get_random_activity,
     get_exercise, get_anime_quote,
     get_currency, get_gold_price, get_movie, get_streaming, calc_bmi,
@@ -26,8 +26,8 @@ from api_helpers import (
     get_spanish_dict, get_meal_random, get_open_trivia, get_number_fact,
     get_nasa_apod, translate_text, smart_translate, text_to_speech, save_tts_audio, get_tts_audio,
     get_joke_round_robin, get_horoscope_round_robin, get_news_round_robin,
-    shazam_recognize, get_starmatch,
-    JLPT_N5_KANJI, QUOTA_MSG, TMDB_KEY, RAPIDAPI_KEY,
+    get_starmatch,
+    JLPT_N5_KANJI, QUOTA_MSG, TMDB_KEY,
 )
 
 from sheets import (
@@ -1411,18 +1411,7 @@ def handle_audio_message(event: MessageEvent):
         reply(reply_token, f"🎤 語音下載失敗：{e}")
         return
 
-    # ── 先嘗試 Shazam 聽歌識曲 ──
-    track = shazam_recognize(audio_bytes)
-    if track and track.get("title"):
-        lines = [f"🎵 聽到這首歌！\n", f"歌名：{track['title']}", f"歌手：{track['artist']}"]
-        if track.get("album"):
-            lines.append(f"專輯：{track['album']}")
-        if track.get("url"):
-            lines.append(f"連結：{track['url']}")
-        reply(reply_token, "\n".join(lines))
-        return
-
-    # ── 不是音樂，用 Gemini 做語音轉文字 ──
+    # ── 用 Gemini 做語音轉文字 ──
     if not GEMINI_KEY:
         reply(reply_token, "🎤 語音轉文字需要設定 GEMINI_API_KEY")
         return
