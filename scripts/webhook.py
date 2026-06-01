@@ -471,7 +471,7 @@ def handle_declutter(reply_token: str, member: str, text: str) -> bool:
     return False
 
 
-def handle_fun(reply_token: str, source, text: str) -> bool:
+def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
 
     group_id = getattr(source, "group_id", None) or getattr(source, "room_id", "default")
 
@@ -517,17 +517,15 @@ def handle_fun(reply_token: str, source, text: str) -> bool:
             elif content.startswith("公共 ") or content.startswith("公用 "):
                 area = "公共"
                 content = content[3:].strip()
-        # 嘗試從發送者身份取得成員名稱
-        member = ""
-        try:
-            with ApiClient(configuration) as api_client:
-                profile = MessagingApi(api_client).get_profile(getattr(source, "user_id", ""))
-                member = profile.display_name
-        except Exception:
-            pass
-        # fallback 用已知暱稱對照
+        # 優先使用 handle_message 已解析的 member，沒有再嘗試抓 profile
         if not member or member not in ["爸爸", "媽媽", "姊姊", "妹妹"]:
-            # 嘗試從 text 推測（不太可靠，先標註未知）
+            try:
+                with ApiClient(configuration) as api_client:
+                    profile = MessagingApi(api_client).get_profile(getattr(source, "user_id", ""))
+                    member = profile.display_name
+            except Exception:
+                pass
+        if not member or member not in ["爸爸", "媽媽", "姊姊", "妹妹"]:
             member = "家人"
         add_tidy_log(member, area, content)
         area_emoji = "🏠" if area == "自己" else "🛋" if area == "公共" else "📦"
@@ -1436,7 +1434,7 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
         handle_accounting(reply_token, member, text) or
         handle_fine(reply_token, member, text) or
         handle_declutter(reply_token, member, text) or
-        handle_fun(reply_token, source, text) or
+        handle_fun(reply_token, source, text, member) or
         handle_ai_mention(reply_token, text)
     ):
         return
