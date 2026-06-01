@@ -43,7 +43,7 @@ from sheets import (
     add_income, get_declutter_income, cancel_last_record,
     pay_fine, get_outstanding_fines,
     add_tidy_log, format_tidy_summary, _detect_area,
-    preview_rename_tidy_member, rename_tidy_member,
+    rename_tidy_member,
 )
 
 app = Flask(__name__)
@@ -68,7 +68,6 @@ MEMBER_SIGNS = {
 
 _quiz_state: dict[str, dict] = {}  # group_id -> {question, answer}
 _HELP_TEXT_CACHE: str | None = None  # 指令清單快取
-_RENAME_PENDING: dict[str, tuple[str, str, int]] = {}  # user_id -> (old_name, new_name, count)
 
 # ─── 工具函數 ─────────────────────────────────
 
@@ -1172,25 +1171,15 @@ def handle_admin(reply_token: str, source, text: str):
     if m_rename:
         old_name = m_rename.group(1).strip()
         new_name = m_rename.group(2).strip()
-        user_id = getattr(source, "user_id", "")
-        # 先預覽數量
-        count = preview_rename_tidy_member(old_name, new_name)
-        if count == 0:
+        changed = rename_tidy_member(old_name, new_name)
+        if not changed:
             reply(reply_token, f"找不到「{old_name}」的收拾紀錄，無需修正")
             return True
-        pending_key = user_id
-        # 檢查是否已有待確認的同一請求
-        if pending_key in _RENAME_PENDING:
-            prev_old, prev_new, prev_count = _RENAME_PENDING[pending_key]
-            if prev_old == old_name and prev_new == new_name:
-                actual = rename_tidy_member(old_name, new_name)
-                del _RENAME_PENDING[pending_key]
-                reply(reply_token, f"✅ 已將 {actual} 筆「{old_name}」修正為「{new_name}」")
-                return True
-        # 第一次：要求確認
-        _RENAME_PENDING[pending_key] = (old_name, new_name, count)
-        reply(reply_token, f"⚠️ 即將把 {count} 筆「{old_name}」改為「{new_name}」\n"
-                           f"請再傳一次「修正{old_name}為{new_name}」確認執行")
+        lines = [f"✅ 已將 {len(changed)} 筆「{old_name}」修正為「{new_name}」"]
+        for c in changed:
+            area_emoji = "🏠" if c['area'] == "自己" else "🛋" if c['area'] == "公共" else "📦"
+            lines.append(f"  {c['date']} {c['time']} {area_emoji} {c['content']}")
+        reply(reply_token, "\n".join(lines))
         return True
 
     return False

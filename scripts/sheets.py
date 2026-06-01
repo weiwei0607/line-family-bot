@@ -741,22 +741,12 @@ def format_tidy_summary() -> str:
     return "\n".join(lines)
 
 
-def preview_rename_tidy_member(old_name: str, new_name: str) -> int:
-    """預覽：回傳「收拾紀錄」中有幾筆舊名字需要修改"""
-    rows = _read("收拾紀錄", "A2:E1000")
-    count = 0
-    for r in rows:
-        if len(r) >= 3 and r[2] == old_name:
-            count += 1
-    return count
-
-
-def rename_tidy_member(old_name: str, new_name: str) -> int:
-    """批次修正「收拾紀錄」中的成員名稱，回傳實際修改筆數"""
+def rename_tidy_member(old_name: str, new_name: str) -> list[dict]:
+    """批次修正「收拾紀錄」中的成員名稱，回傳修改明細列表"""
     svc = _get_service()
     sid = _get_sheet_id()
     rows = _read("收拾紀錄", "A2:E1000")
-    changed = 0
+    changed: list[dict] = []
     for i, r in enumerate(rows):
         if len(r) >= 3 and r[2] == old_name:
             row_num = i + 2  # A2 開始
@@ -766,5 +756,10 @@ def rename_tidy_member(old_name: str, new_name: str) -> int:
                 valueInputOption="USER_ENTERED",
                 body={"values": [[new_name]]},
             ).execute()
-            changed += 1
+            changed.append({
+                "date": r[0] if len(r) > 0 else "",
+                "time": r[1] if len(r) > 1 else "",
+                "area": r[3] if len(r) > 3 else "",
+                "content": r[4] if len(r) > 4 else "",
+            })
     return changed
