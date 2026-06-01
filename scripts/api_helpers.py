@@ -153,17 +153,10 @@ def groq_stt(audio_bytes: bytes, mime: str = "audio/mpeg") -> str:
         return ""
 
 
+from shared.retry import retry_http
+
 def _retry_http(fn, max_retries=3, backoff=2):
-    last_exc = None
-    for attempt in range(max_retries):
-        try:
-            return fn()
-        except (requests.ConnectionError, requests.Timeout) as exc:
-            last_exc = exc
-            if attempt < max_retries - 1:
-                import time
-                time.sleep(backoff ** attempt)
-    raise last_exc
+    return retry_http(max_retries=max_retries, backoff=backoff)(fn)()
 
 
 def call_gemini(prompt: str) -> str:

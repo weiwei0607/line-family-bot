@@ -433,16 +433,8 @@ def handle_declutter(reply_token: str, member: str, text: str) -> bool:
     return False
 
 
-def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
-
-    group_id = getattr(source, "group_id", None) or getattr(source, "room_id", "default")
-
-    # ── Simple dispatch (fast path for stateless commands) ──
-    from dispatch_fun import try_dispatch
-    if try_dispatch(text, lambda t: reply(reply_token, t)):
-        return True
-
-    # ── 天氣 ──
+def _handle_weather(reply_token: str, text: str) -> bool:
+    """Handle weather-related commands."""
     weather_triggers = ["天氣", "下雨", "會下雨", "帶傘", "氣溫", "溫度", "適合出門", "出門嗎"]
     has_weather_word = any(k in text for k in weather_triggers)
     date_result = parse_date_offset(text)
@@ -464,6 +456,69 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
                 reply(reply_token, f"🌡 {desc}天氣\n\n{weather_text}")
         else:
             reply(reply_token, "🌡 今日天氣\n\n" + format_weather_block())
+        return True
+    return False
+
+
+def _handle_quiz(reply_token: str, text: str, group_id: str) -> bool:
+    """Handle quiz game commands."""
+    global _quiz_state
+    if text in ["出題", "來玩問答", "問答遊戲", "出一題"]:
+        trivia = get_open_trivia() or get_trivia()
+        if trivia and trivia.get("question"):
+            q_zh = smart_translate(trivia["question"])
+            a_zh = smart_translate(trivia["answer"])
+            _quiz_state[group_id] = {"question": q_zh, "answer": a_zh}
+            reply(reply_token, f"🧠 問答時間！\n\n{q_zh}\n\n傳「答 你的答案」作答，傳「答案」看解答")
+        else:
+            qa = call_gemini("出一道適合全家的中文知識問答，格式：\n問題：xxx\n答案：xxx\n只給這兩行")
+            question, answer = "", ""
+            for line in qa.strip().splitlines():
+                if line.startswith("問題："):
+                    question = line[3:].strip()
+                elif line.startswith("答案："):
+                    answer = line[3:].strip()
+            if question and answer:
+                _quiz_state[group_id] = {"question": question, "answer": answer}
+                reply(reply_token, f"🧠 問答時間！\n\n{question}\n\n傳「答 你的答案」作答，傳「答案」看解答")
+            else:
+                reply(reply_token, "出題失敗，再試一次！")
+        return True
+
+    m_ans = re.match(r"^答\s+(.+)$", text)
+    if m_ans:
+        if group_id not in _quiz_state:
+            reply(reply_token, "目前沒有進行中的題目，傳「出題」開始！")
+            return True
+        state = _quiz_state[group_id]
+        user_ans = m_ans.group(1).strip().lower()
+        correct = state["answer"].lower()
+        if correct in user_ans or user_ans in correct:
+            del _quiz_state[group_id]
+            reply(reply_token, f"🎉 答對了！答案是：{state['answer']}")
+        else:
+            reply(reply_token, "❌ 不對喔，再想想！")
+        return True
+
+    if text in ["答案", "我不知道", "放棄", "答案是什麼"]:
+        if group_id in _quiz_state:
+            state = _quiz_state.pop(group_id)
+            reply(reply_token, f"💡 答案是：{state['answer']}")
+            return True
+    return False
+
+
+def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
+
+    group_id = getattr(source, "group_id", None) or getattr(source, "room_id", "default")
+
+    # ── Simple dispatch (fast path for stateless commands) ──
+    from dispatch_fun import try_dispatch
+    if try_dispatch(text, lambda t: reply(reply_token, t)):
+        return True
+
+    # ── 天氣 ──
+    if _handle_weather(reply_token, text):
         return True
 
     # ── 收拾紀錄 ──
@@ -569,51 +624,9 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
         reply(reply_token, "請傳「[星座]配[星座]」\n例：天蠍配金牛、雙子配射手")
         return True
 
-    # ── 問答遊戲 出題 ──
-    if text in ["出題", "來玩問答", "問答遊戲", "出一題"]:
-        trivia = get_open_trivia() or get_trivia()
-        if trivia and trivia.get("question"):
-            q_zh = smart_translate(trivia["question"])
-            a_zh = smart_translate(trivia["answer"])
-            _quiz_state[group_id] = {"question": q_zh, "answer": a_zh}
-            reply(reply_token, f"🧠 問答時間！\n\n{q_zh}\n\n傳「答 你的答案」作答，傳「答案」看解答")
-        else:
-            qa = call_gemini("出一道適合全家的中文知識問答，格式：\n問題：xxx\n答案：xxx\n只給這兩行")
-            question, answer = "", ""
-            for line in qa.strip().splitlines():
-                if line.startswith("問題："):
-                    question = line[3:].strip()
-                elif line.startswith("答案："):
-                    answer = line[3:].strip()
-            if question and answer:
-                _quiz_state[group_id] = {"question": question, "answer": answer}
-                reply(reply_token, f"🧠 問答時間！\n\n{question}\n\n傳「答 你的答案」作答，傳「答案」看解答")
-            else:
-                reply(reply_token, "出題失敗，再試一次！")
+    # ── 問答遊戲 ──
+    if _handle_quiz(reply_token, text, group_id):
         return True
-
-    # ── 問答遊戲 作答 ──
-    m_ans = re.match(r"^答\s+(.+)$", text)
-    if m_ans:
-        if group_id not in _quiz_state:
-            reply(reply_token, "目前沒有進行中的題目，傳「出題」開始！")
-            return True
-        state = _quiz_state[group_id]
-        user_ans = m_ans.group(1).strip().lower()
-        correct = state["answer"].lower()
-        if correct in user_ans or user_ans in correct:
-            del _quiz_state[group_id]
-            reply(reply_token, f"🎉 答對了！答案是：{state['answer']}")
-        else:
-            reply(reply_token, "❌ 不對喔，再想想！")
-        return True
-
-    # ── 問答遊戲 看答案 ──
-    if text in ["答案", "我不知道", "放棄", "答案是什麼"]:
-        if group_id in _quiz_state:
-            state = _quiz_state.pop(group_id)
-            reply(reply_token, f"💡 答案是：{state['answer']}")
-            return True
 
 
     # ── 推薦飲料 ──
