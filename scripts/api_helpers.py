@@ -211,7 +211,105 @@ def get_fun_fact() -> str:
         return ""
 
 
-# ── 星座運勢（Aztro，免費無需 key，快取 6 小時）───
+# ── 星座運勢輔助 ─────────────────────────────────
+
+_RASHI_MAP = {
+    "aries": "mesha", "taurus": "vrsabha", "gemini": "mithuna",
+    "cancer": "karka", "leo": "simha", "virgo": "kanya",
+    "libra": "tula", "scorpio": "vrschika", "sagittarius": "dhanu",
+    "capricorn": "makara", "aquarius": "kumbha", "pisces": "mina",
+}
+
+def _get_horoscope_advanced(sign_en: str, sign_zh: str) -> dict | None:
+    try:
+        if not RAPIDAPI_KEY:
+            return None
+        r = requests.get(
+            "https://daily-horoscope-advanced-api.p.rapidapi.com/api/Daily-Horoscope-New/",
+            headers={"x-rapidapi-host": "daily-horoscope-advanced-api.p.rapidapi.com", "x-rapidapi-key": RAPIDAPI_KEY},
+            params={"zodiacSign": sign_en.capitalize(), "timePeriod": "today"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            d = r.json()
+            return {
+                "sign": sign_zh + "座",
+                "description": d.get("prediction", ""),
+                "mood": "—", "color": "—", "lucky_number": "—", "compatibility": "—",
+                "source": "Daily Horoscope Advanced",
+            }
+    except Exception:
+        pass
+    return None
+
+def _get_horoscope_basic(sign_en: str, sign_zh: str) -> dict | None:
+    try:
+        if not RAPIDAPI_KEY:
+            return None
+        r = requests.get(
+            "https://daily-horoscope-api.p.rapidapi.com/api/Daily-Horoscope-English/",
+            headers={"x-rapidapi-host": "daily-horoscope-api.p.rapidapi.com", "x-rapidapi-key": RAPIDAPI_KEY},
+            params={"zodiacSign": sign_en.capitalize(), "timePeriod": "today"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            d = r.json()
+            return {
+                "sign": sign_zh + "座",
+                "description": d.get("prediction", ""),
+                "mood": "—",
+                "color": d.get("color", "—").split(",")[0].strip() if d.get("color") else "—",
+                "lucky_number": d.get("number", "—").split(",")[0].strip() if d.get("number") else "—",
+                "compatibility": "—",
+                "source": "Daily Horoscope Basic",
+            }
+    except Exception:
+        pass
+    return None
+
+def _get_horoscope_rashifal(sign_en: str, sign_zh: str) -> dict | None:
+    try:
+        if not RAPIDAPI_KEY:
+            return None
+        rashi = _RASHI_MAP.get(sign_en)
+        if not rashi:
+            return None
+        r = requests.get(
+            "https://zodiac-horoscope-api-rashifal.p.rapidapi.com/astro/rashi/daily",
+            headers={"x-rapidapi-host": "zodiac-horoscope-api-rashifal.p.rapidapi.com", "x-rapidapi-key": RAPIDAPI_KEY},
+            params={"rashi": rashi, "day": "today", "lang": "en"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            d = r.json()
+            return {
+                "sign": sign_zh + "座",
+                "description": d.get("desc", ""),
+                "mood": "—", "color": "—", "lucky_number": "—", "compatibility": "—",
+                "source": "Rashifal",
+            }
+    except Exception:
+        pass
+    return None
+
+def _get_horoscope_aztro(sign_en: str, sign_zh: str) -> dict | None:
+    try:
+        r = requests.post(
+            f"https://aztro.sameerkumar.website/?sign={sign_en}&day=today",
+            timeout=10,
+        )
+        d = r.json()
+        return {
+            "sign": sign_zh + "座",
+            "description": d.get("description", ""),
+            "mood": d.get("mood", ""),
+            "color": d.get("color", ""),
+            "lucky_number": d.get("lucky_number", ""),
+            "compatibility": d.get("compatibility", ""),
+            "source": "Aztro",
+        }
+    except Exception:
+        return None
 
 def get_horoscope(sign_zh: str) -> dict | None:
     sign_zh = sign_zh.replace("座", "").strip()
@@ -219,22 +317,12 @@ def get_horoscope(sign_zh: str) -> dict | None:
     if not sign_en:
         return None
     def _fetch():
-        try:
-            r = requests.post(
-                f"https://aztro.sameerkumar.website/?sign={sign_en}&day=today",
-                timeout=10,
-            )
-            d = r.json()
-            return {
-                "sign": sign_zh + "座",
-                "description": d.get("description", ""),
-                "mood": d.get("mood", ""),
-                "color": d.get("color", ""),
-                "lucky_number": d.get("lucky_number", ""),
-                "compatibility": d.get("compatibility", ""),
-            }
-        except Exception:
-            return None
+        return (
+            _get_horoscope_advanced(sign_en, sign_zh)
+            or _get_horoscope_basic(sign_en, sign_zh)
+            or _get_horoscope_rashifal(sign_en, sign_zh)
+            or _get_horoscope_aztro(sign_en, sign_zh)
+        )
     return _cached(f"horoscope_{sign_en}", 21600, _fetch)
 
 
@@ -952,10 +1040,10 @@ def _get_horoscope_gemini(sign_zh: str) -> dict | None:
     }
 
 def get_horoscope_round_robin(sign: str) -> dict | None:
-    return _fallback_call(
-        lambda: get_horoscope(sign),
-        lambda: _get_horoscope_gemini(sign),
-    )
+    result = get_horoscope(sign)
+    if result:
+        return result
+    return _get_horoscope_gemini(sign)
 
 
 # ── 星座配對（Gemini）────────────────────────────
