@@ -43,22 +43,25 @@ def main():
 
     lines.append("")
 
-    # 待辦提醒
+    # 待辦提醒（早上溫柔版）
     if today_todos or overdue_todos:
         if today_todos:
-            lines.append("🔔 今天待辦：")
+            lines.append("📅 今天待辦：")
             for t in today_todos:
                 by = f"（{t['created_by']} 記的）" if t.get('created_by') and t['created_by'] != t['member'] else ""
                 lines.append(f"  • {t['member']}｜{t['content']}{by}")
             lines.append("")
 
         if overdue_todos:
-            lines.append("⚠️ 逾期公審 🔥")
+            lines.append("⏰ 已經逾期，但今天還有機會補上 💪")
             for t in overdue_todos:
                 days_overdue = (datetime.strptime(today, "%Y-%m-%d") - datetime.strptime(t["date"], "%Y-%m-%d")).days
-                day_str = f"{days_overdue} 天" if days_overdue > 1 else "1 天"
-                lines.append(f"  • {t['member']}｜{t['content']}（逾期 {day_str}）")
-            lines.append("\n以上還沒完成的人，大家正盯著你 👀💢")
+                if days_overdue == 1:
+                    day_str = "昨天到期"
+                else:
+                    day_str = f"逾期 {days_overdue} 天"
+                lines.append(f"  • {t['member']}｜{t['content']}（{day_str}）")
+            lines.append("\n沒關係的，慢慢來，今天記得處理就好 🥺✨")
             lines.append("")
     else:
         lines.append("✅ 沒有待辦事項，太棒了！")
