@@ -163,7 +163,7 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
 
 def handle_ai_mention(reply_token: str, text: str):
     """@機器人 問問題"""
-    m = re.match(r"^@?(?:機器人|家管|bot|助理|小花)\s+(.+)", text, re.IGNORECASE)
+    m = re.match(r"^@?(?:機器人|家管|bot|助理|小花)\s*(.+)", text, re.IGNORECASE)
     if m:
         question = m.group(1).strip()
         # 先嘗試走指令處理（天氣、星座等）
