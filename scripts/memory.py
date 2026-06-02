@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 TZ = ZoneInfo("Asia/Taipei")
 _TAB = "對話紀錄"
-_BUFFER_SIZE = 60
+_BUFFER_SIZE = 30
 _CONTEXT_SIZE = 20
 _MAX_MSG_LEN = 300
 _EPHEMERAL_TTL_HOURS = 2
