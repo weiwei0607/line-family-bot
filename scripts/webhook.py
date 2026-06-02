@@ -203,17 +203,22 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
     return False
 
 
-def handle_ai_mention(reply_token: str, text: str):
-    """@機器人 問問題"""
+def handle_ai_mention(reply_token: str, text: str, member: str = ""):
+    """@機器人 問問題（純文字觸發，非 LINE 正式 mention）"""
     m = re.match(r"^@?(?:機器人|家管|bot|助理|小花)\s*(.+)", text, re.IGNORECASE)
     if m:
         question = m.group(1).strip()
-        # 先嘗試走指令處理（天氣、星座等）
+        _memory.record(member or "家人", question)  # 記錄使用者的問題
         if handle_fun(reply_token, None, question):
             return True
-        answer = call_ai(
-            f"你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。\n\n問題：{question}"
+        ctx = _memory.format_for_ai()
+        prompt = (
+            "你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。"
+            + (f"\n\n{ctx}" if ctx else "")
+            + f"\n\n問題：{question}"
         )
+        answer = call_ai(prompt)
+        _memory.record("機器人", answer)
         reply(reply_token, answer)
         return True
     return False
@@ -399,7 +404,7 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
         handle_fine(reply_token, member, text) or
         handle_declutter(reply_token, member, text) or
         handle_fun(reply_token, source, text, member) or
-        handle_ai_mention(reply_token, text)
+        handle_ai_mention(reply_token, text, member)
     ):
         return True
 
@@ -554,6 +559,13 @@ def handle_audio_message(event: MessageEvent):
     member = ""
     if hasattr(event, "source") and hasattr(event.source, "user_id"):
         member = resolve_member(event.source.user_id)
+
+    group_id = (
+        getattr(event.source, "group_id", None)
+        or getattr(event.source, "room_id", None)
+        or f"dm_{user_id}"
+    )
+    _memory.set_context(group_id)
 
     _process_text_message(reply_token, transcript, event.source, member)
 
