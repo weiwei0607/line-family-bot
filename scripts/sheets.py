@@ -921,7 +921,29 @@ def rename_latest_tidy_member(old_name: str, new_name: str) -> dict | None:
 
 # ─── Todo / Reminder ──────────────────────────────────────
 
+_TODO_SHEET_ID: int | None = None
+
+
+def _get_todo_sheet_id() -> int | None:
+    """Return the numeric sheetId for the 待辦 tab (cached after first fetch)."""
+    global _TODO_SHEET_ID
+    if _TODO_SHEET_ID is not None:
+        return _TODO_SHEET_ID
+    svc = _get_service()
+    sid = _get_sheet_id()
+    meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
+    for s in meta.get("sheets", []):
+        if s["properties"]["title"] == "待辦":
+            _TODO_SHEET_ID = s["properties"]["sheetId"]
+            return _TODO_SHEET_ID
+    return None
+
+
 def get_todos(only_pending=True) -> list[dict]:
+    cache_key = "todos_pending" if only_pending else "todos_all"
+    cached = _sc_get(cache_key, 60)  # 60s cache
+    if cached is not None:
+        return cached
     try:
         rows = _read("待辦", "A2:H200")
     except Exception:
@@ -944,6 +966,7 @@ def get_todos(only_pending=True) -> list[dict]:
         if only_pending and item["status"] == "已完成":
             continue
         items.append(item)
+    _sc_set(cache_key, items)
     return items
 
 
@@ -953,6 +976,7 @@ def add_todo(member: str, date_str: str, content: str, created_by: str,
         _ensure_tab("待辦")
         _append("待辦", [_now_str(), date_str, member, content, "待辦", created_by,
                          time_str, 0])
+        _sc_del("todos_pending", "todos_all")
         return True
     except Exception as e:
         logger.warning("add_todo failed: %s", e)
@@ -962,6 +986,7 @@ def add_todo(member: str, date_str: str, content: str, created_by: str,
 def update_todo_reminder(row: int, reminded_count: int):
     """更新待辦的提醒次數（column H）。"""
     _update_cell("待辦", f"H{row}", reminded_count)
+    _sc_del("todos_pending", "todos_all")
 
 
 def find_todos_by_content(member: str, content: str) -> list[dict]:
@@ -983,10 +1008,43 @@ def complete_todo_by_content(member: str, content: str) -> dict | None:
         return {"multiple": True, "items": matched}
     try:
         _update_cell("待辦", f"E{matched[0]['row']}", "已完成")
+        _sc_del("todos_pending", "todos_all")
         return matched[0]
     except Exception as e:
         logger.warning("complete_todo_by_content failed: %s", e)
         return None
+
+
+def delete_todo_by_row(row: int) -> bool:
+    """Delete a todo row by its row number. Returns True on success."""
+    try:
+        sheet_id = _get_todo_sheet_id()
+        if sheet_id is None:
+            return False
+        svc = _get_service()
+        sid = _get_sheet_id()
+        row_index = row - 1
+        svc.spreadsheets().batchUpdate(
+            spreadsheetId=sid,
+            body={
+                "requests": [{
+                    "deleteDimension": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "dimension": "ROWS",
+                            "startIndex": row_index,
+                            "endIndex": row_index + 1,
+                        }
+                    }
+                }]
+            },
+        ).execute()
+        _sc_del("todos_pending", "todos_all")
+        _TODO_SHEET_ID = None  # row numbers shifted after delete
+        return True
+    except Exception as e:
+        logger.warning("delete_todo_by_row failed: %s", e)
+        return False
 
 
 def delete_todo_by_content(member: str, content: str) -> dict | None:
@@ -996,36 +1054,6 @@ def delete_todo_by_content(member: str, content: str) -> dict | None:
         return None
     if len(matched) > 1:
         return {"multiple": True, "items": matched}
-    try:
-        svc = _get_service()
-        sid = _get_sheet_id()
-        meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
-        sheet_id = None
-        for s in meta.get("sheets", []):
-            if s["properties"]["title"] == "待辦":
-                sheet_id = s["properties"]["sheetId"]
-                break
-        if sheet_id is None:
-            return None
-        row_index = matched[0]["row"] - 1
-        svc.spreadsheets().batchUpdate(
-            spreadsheetId=sid,
-            body={
-                "requests": [
-                    {
-                        "deleteDimension": {
-                            "range": {
-                                "sheetId": sheet_id,
-                                "dimension": "ROWS",
-                                "startIndex": row_index,
-                                "endIndex": row_index + 1,
-                            }
-                        }
-                    }
-                ]
-            },
-        ).execute()
+    if delete_todo_by_row(matched[0]["row"]):
         return matched[0]
-    except Exception as e:
-        logger.warning("delete_todo_by_content failed: %s", e)
-        return None
+    return None

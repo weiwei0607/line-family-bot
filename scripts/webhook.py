@@ -356,10 +356,12 @@ def check_reminders():
     today = now.strftime("%Y-%m-%d")
     todos = get_todos(only_pending=True)
 
-    def _send_reminder(t, msg, voice_text, new_count):
+    base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    sent = 0
+
+    def _push_with_tts(msg, voice_text):
         nonlocal sent
         push_messages(group_id, [{"type": "text", "text": msg}])
-        base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
         if base_url:
             tts_result = text_to_speech(voice_text, "zh-TW")
             if tts_result:
@@ -368,10 +370,12 @@ def check_reminders():
                 audio_url = f"{base_url}/tts/{fname}"
                 duration = min(len(voice_text) * 300 + 1000, 30000)
                 push_messages(group_id, [{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
-        update_todo_reminder(t["row"], new_count)
         sent += 1
 
-    sent = 0
+    def _send_reminder(t, msg, voice_text, new_count):
+        _push_with_tts(msg, voice_text)
+        update_todo_reminder(t["row"], new_count)
+
     for t in todos:
         try:
             if t["date"] != today:
@@ -420,6 +424,28 @@ def check_reminders():
                 _send_reminder(t, msg, voice_text, 1)
         except Exception as _e:
             logger.warning("check_reminders: error processing todo row %s: %s", t.get("row"), _e)
+
+    # ── 前一天晚上提醒（20:00+，每筆只推一次，用 kv 去重）──
+    if now.hour >= 20:
+        from tts_store import kv_get as _kv_get, kv_set as _kv_set
+        tomorrow = (now + _td(days=1)).strftime("%Y-%m-%d")
+        for t in todos:
+            try:
+                if t["date"] != tomorrow:
+                    continue
+                preday_key = f"preday:{t['row']}"
+                if _kv_get(preday_key):
+                    continue
+                member = t["member"]
+                content = t["content"]
+                created_by = t.get("created_by", "")
+                voice_content = content.replace("我", created_by) if created_by else content
+                msg = f"📅 明天待辦提醒！\n📌 {member}：{content}\n\n完成後傳「完成待辦 {content[:10]}」"
+                voice_text = f"提醒一下！{member}，明天要{voice_content}！"
+                _push_with_tts(msg, voice_text)
+                _kv_set(preday_key, "1", ttl_seconds=90000)  # ~25h，避免隔天又推
+            except Exception as _e:
+                logger.warning("check_reminders: error processing pre-day todo row %s: %s", t.get("row"), _e)
 
     return f"sent {sent} reminders", 200
 

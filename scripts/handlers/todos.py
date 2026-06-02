@@ -4,7 +4,7 @@ Todo / reminder management handlers for family bot.
 
 import re
 from datetime import datetime, timedelta
-from sheets import add_todo, get_todos, complete_todo_by_content, delete_todo_by_content, find_todos_by_content, TW_TZ
+from sheets import add_todo, get_todos, complete_todo_by_content, delete_todo_by_content, delete_todo_by_row, find_todos_by_content, TW_TZ
 from tts_store import kv_get, kv_set, kv_delete
 
 _CN_NUM = {
@@ -211,39 +211,9 @@ def handle_cancel_todo(member: str, text: str) -> str | None:
         if items:
             idx = int(content) - 1
             if 0 <= idx < len(items):
-                try:
-                    from sheets import _get_service, _get_sheet_id
-                    svc = _get_service()
-                    sid = _get_sheet_id()
-                    meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
-                    sheet_id = None
-                    for s in meta.get("sheets", []):
-                        if s["properties"]["title"] == "待辦":
-                            sheet_id = s["properties"]["sheetId"]
-                            break
-                    if sheet_id is not None:
-                        row_index = items[idx]["row"] - 1
-                        svc.spreadsheets().batchUpdate(
-                            spreadsheetId=sid,
-                            body={
-                                "requests": [
-                                    {
-                                        "deleteDimension": {
-                                            "range": {
-                                                "sheetId": sheet_id,
-                                                "dimension": "ROWS",
-                                                "startIndex": row_index,
-                                                "endIndex": row_index + 1,
-                                            }
-                                        }
-                                    }
-                                ]
-                            },
-                        ).execute()
-                        kv_delete(key)
-                        return f"🗑️ 已取消！「{items[idx]['content']}」從待辦清單刪除"
-                except Exception:
-                    pass
+                if delete_todo_by_row(items[idx]["row"]):
+                    kv_delete(key)
+                    return f"🗑️ 已取消！「{items[idx]['content']}」從待辦清單刪除"
             kv_delete(key)
             return "編號錯誤或已過期，請重新搜尋"
 
