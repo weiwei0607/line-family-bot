@@ -51,7 +51,8 @@ def _handle_horoscope(reply_token: str, text: str, member_signs: dict[str, str])
             name, sign = args
             data = results.get(name)
             if data and data.get("description"):
-                desc = call_gemini(f"翻成繁體中文1-2句：{data['description']}")
+                from api_helpers import call_ai
+                desc = call_ai(f"翻成繁體中文1-2句：{data['description']}")
                 return name, sign, desc, data.get("color", "—"), data.get("lucky_number", "—")
             return name, sign, None, "—", "—"
 

@@ -126,10 +126,24 @@ def _cmd_activity(reply):
         reply(call_ai("推薦一個適合全家一起做的休閒活動，用繁體中文回答"))
 
 
+_BODY_PART_ZH = {
+    "back": "背部", "chest": "胸部", "lower arms": "前臂", "lower legs": "小腿",
+    "neck": "頸部", "shoulders": "肩膀", "upper arms": "上臂", "upper legs": "大腿",
+    "waist": "腰腹", "cardio": "有氧", "core": "核心",
+}
+_EQUIPMENT_ZH = {
+    "barbell": "槓鈴", "dumbbell": "啞鈴", "body weight": "徒手", "cable": "拉力繩",
+    "band": "彈力帶", "kettlebell": "壺鈴", "machine": "器械", "roller": "滾筒",
+    "band-light": "輕彈力帶", "ez barbell": "曲柄槓鈴", "smith machine": "史密斯機",
+    "resistance band": "彈力帶", "assisted": "輔助器械",
+}
+
 def _cmd_exercise(reply):
     data = get_exercise()
     if data:
-        reply(f"💪 今日運動：{smart_translate(data.get('name',''))}\n\n部位：{smart_translate(data.get('bodyPart',''))}\n器材：{smart_translate(data.get('equipment',''))}")
+        body = _BODY_PART_ZH.get(data.get("bodyPart", "").lower(), data.get("bodyPart", ""))
+        equip = _EQUIPMENT_ZH.get(data.get("equipment", "").lower(), data.get("equipment", ""))
+        reply(f"💪 今日運動：{smart_translate(data.get('name',''))}\n\n部位：{body}\n器材：{equip}")
     else:
         reply(call_ai("推薦一個適合在家做的簡單運動，說明動作和次數"))
 
