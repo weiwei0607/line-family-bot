@@ -135,7 +135,7 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
 
     # ── 趣味互動（骰子、猜拳、配對）──
     from handlers.games import handle_pairing, handle_dice, handle_rps
-    if "配對" in text:
+    if text.startswith("配對"):
         reply(reply_token, handle_pairing(text))
         return True
     if re.search(r'搖骰子|擲骰子|搖\d*[顆個]骰', text):
@@ -364,7 +364,7 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
     """處理文字訊息的核心邏輯（文字/語音轉文字共用）"""
     # ── 待辦提醒 ──
     from handlers.todos import handle_add_todo, handle_view_todos, handle_complete_todo
-    if re.match(r'^提醒(我|\s)', text):
+    if text.startswith("提醒"):
         reply(reply_token, handle_add_todo(member, text))
         return
     if text in ["待辦清單", "待辦", "我的待辦"]:

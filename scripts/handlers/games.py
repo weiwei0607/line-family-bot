@@ -15,6 +15,8 @@ def handle_pairing(text) -> str:
         a = parts[0] if len(parts) >= 1 else random.choice(members)
         b = parts[1] if len(parts) >= 2 else random.choice([x for x in members if x != a] or members)
     else:
+        if len(members) < 2:
+            return "👤 目前只有一位成員，沒辦法配對 😅"
         a, b = random.sample(members, 2)
     score = random.randint(0, 100)
     if score >= 90:

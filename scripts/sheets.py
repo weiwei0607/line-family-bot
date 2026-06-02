@@ -75,6 +75,25 @@ def _get_service():
 def _get_sheet_id():
     return os.environ["FAMILY_SHEET_ID"]
 
+def _ensure_tab(tab_name: str) -> bool:
+    """Auto-create a sheet tab if it doesn't exist."""
+    try:
+        svc = _get_service()
+        sid = _get_sheet_id()
+        meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
+        titles = [s["properties"]["title"] for s in meta.get("sheets", [])]
+        if tab_name in titles:
+            return True
+        svc.spreadsheets().batchUpdate(
+            spreadsheetId=sid,
+            body={"requests": [{"addSheet": {"properties": {"title": tab_name}}}]},
+        ).execute()
+        return True
+    except Exception as e:
+        logger.warning("ensure_tab %s failed: %s", tab_name, e)
+        return False
+
+
 def _retry_gapi(fn, max_retries=3, backoff=2):
     last_exc = None
     for attempt in range(max_retries):
@@ -894,7 +913,10 @@ def rename_latest_tidy_member(old_name: str, new_name: str) -> dict | None:
 # ─── Todo / Reminder ──────────────────────────────────────
 
 def get_todos(only_pending=True) -> list[dict]:
-    rows = _read("待辦", "A2:F200")
+    try:
+        rows = _read("待辦", "A2:F200")
+    except Exception:
+        return []
     items = []
     for i, r in enumerate(rows):
         if not r or not r[0].strip():
@@ -916,6 +938,7 @@ def get_todos(only_pending=True) -> list[dict]:
 
 def add_todo(member: str, date_str: str, content: str, created_by: str) -> bool:
     try:
+        _ensure_tab("待辦")
         _append("待辦", [_now_str(), date_str, member, content, "待辦", created_by])
         return True
     except Exception as e:
