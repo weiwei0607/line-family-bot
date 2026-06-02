@@ -43,6 +43,14 @@ def _init():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS kv (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                expires_at TIMESTAMP
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_kv_expires ON kv(expires_at)")
         c.commit()
 
 
@@ -198,6 +206,52 @@ def webhook_seen(dedup_key: str, ttl_seconds: int = 300) -> bool:
     except sqlite3.Error as exc:
         logging.warning("webhook_seen error: %s", exc)
         return False  # fail open
+
+
+# ─── Generic KV store (for vote, quiz, etc.) ──────────────
+
+def kv_get(key: str, default=None):
+    try:
+        with _conn() as c:
+            row = c.execute(
+                "SELECT value FROM kv WHERE key = ? AND (expires_at IS NULL OR expires_at > datetime('now'))",
+                (key,),
+            ).fetchone()
+            if row:
+                import json
+                try:
+                    return json.loads(row[0])
+                except (json.JSONDecodeError, TypeError):
+                    return row[0]
+    except sqlite3.Error as exc:
+        logging.warning("kv_get error: %s", exc)
+    return default
+
+
+def kv_set(key: str, value, ttl_seconds: int | None = None):
+    import json
+    expires = None
+    if ttl_seconds:
+        expires = (datetime.now() + timedelta(seconds=ttl_seconds)).isoformat()
+    try:
+        with _write_lock, _conn() as c:
+            c.execute(
+                "INSERT INTO kv (key, value, expires_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, expires_at=excluded.expires_at",
+                (key, json.dumps(value, ensure_ascii=False), expires),
+            )
+            c.commit()
+    except sqlite3.Error as exc:
+        logging.warning("kv_set error: %s", exc)
+
+
+def kv_delete(key: str):
+    try:
+        with _write_lock, _conn() as c:
+            c.execute("DELETE FROM kv WHERE key = ?", (key,))
+            c.commit()
+    except sqlite3.Error as exc:
+        logging.warning("kv_delete error: %s", exc)
 
 
 def webhook_cleanup(ttl_seconds: int = 600) -> None:

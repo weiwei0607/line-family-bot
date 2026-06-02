@@ -133,6 +133,25 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
     if try_dispatch(text, lambda t: reply(reply_token, t)):
         return True
 
+    # ── 趣味互動（骰子、猜拳、配對）──
+    from handlers.games import handle_pairing, handle_dice, handle_rps
+    if "配對" in text:
+        reply(reply_token, handle_pairing(text))
+        return True
+    if re.search(r'搖骰子|擲骰子|搖\d*[顆個]骰', text):
+        reply(reply_token, handle_dice(text))
+        return True
+    if text.startswith("猜拳"):
+        reply(reply_token, handle_rps(text))
+        return True
+
+    # ── 投票 ──
+    from handlers.vote import handle_vote
+    vote_result = handle_vote(text, group_id, member)
+    if vote_result is not None:
+        reply(reply_token, vote_result)
+        return True
+
     # ── 天氣 ──
     if _handle_weather(reply_token, text):
         return True
@@ -343,6 +362,20 @@ def webhook():
 
 def _process_text_message(reply_token: str, text: str, source, member: str = ""):
     """處理文字訊息的核心邏輯（文字/語音轉文字共用）"""
+    # ── 待辦提醒 ──
+    from handlers.todos import handle_add_todo, handle_view_todos, handle_complete_todo
+    if re.match(r'^提醒(我|\s)', text):
+        reply(reply_token, handle_add_todo(member, text))
+        return
+    if text in ["待辦清單", "待辦", "我的待辦"]:
+        reply(reply_token, handle_view_todos())
+        return
+    if text.startswith("完成待辦"):
+        result = handle_complete_todo(member, text)
+        if result:
+            reply(reply_token, result)
+            return
+
     if (
         handle_admin(reply_token, source, text) or
         handle_batch_log(reply_token, member, text) or
@@ -365,6 +398,7 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
         "今日宇宙", "推薦電影", "新聞", "今日新聞", "金價", "激勵名言",
         "今日日文單字", "今日西文單字", "今日漢字", "說明", "指令清單",
         "今天做什麼", "今天運動", "動漫名言", "出題", "翻譯",
+        "待辦清單", "我的待辦", "完成待辦",
     ]
     if len(text) <= 8 and not re.search(r"[a-zA-Z0-9]", text):
         close = difflib.get_close_matches(text, _KNOWN_COMMANDS, n=1, cutoff=0.6)

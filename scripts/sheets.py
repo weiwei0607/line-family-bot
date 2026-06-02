@@ -889,3 +889,52 @@ def rename_latest_tidy_member(old_name: str, new_name: str) -> dict | None:
                 "content": r[4] if len(r) > 4 else "",
             }
     return None
+
+
+# ─── Todo / Reminder ──────────────────────────────────────
+
+def get_todos(only_pending=True) -> list[dict]:
+    rows = _read("待辦", "A2:F200")
+    items = []
+    for i, r in enumerate(rows):
+        if not r or not r[0].strip():
+            continue
+        item = {
+            "row": i + 2,
+            "timestamp": r[0].strip() if len(r) > 0 else "",
+            "date": r[1].strip() if len(r) > 1 else "",
+            "member": r[2].strip() if len(r) > 2 else "",
+            "content": r[3].strip() if len(r) > 3 else "",
+            "status": r[4].strip() if len(r) > 4 else "待辦",
+            "created_by": r[5].strip() if len(r) > 5 else "",
+        }
+        if only_pending and item["status"] == "已完成":
+            continue
+        items.append(item)
+    return items
+
+
+def add_todo(member: str, date_str: str, content: str, created_by: str) -> bool:
+    try:
+        _append("待辦", [_now_str(), date_str, member, content, "待辦", created_by])
+        return True
+    except Exception as e:
+        logger.warning("add_todo failed: %s", e)
+        return False
+
+
+def complete_todo_by_content(member: str, content: str) -> dict | None:
+    """Mark matching pending todo as done. Returns todo dict or None."""
+    try:
+        todos = get_todos(only_pending=True)
+        matched = next(
+            (t for t in todos if content in t["content"] or t["content"] in content),
+            None,
+        )
+        if not matched:
+            return None
+        _update_cell("待辦", f"E{matched['row']}", "已完成")
+        return matched
+    except Exception as e:
+        logger.warning("complete_todo_by_content failed: %s", e)
+        return None

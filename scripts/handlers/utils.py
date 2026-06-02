@@ -8,7 +8,7 @@ from datetime import datetime as _dt
 from api_helpers import (
     get_wikipedia, get_world_time, get_country_info,
     search_recipes_by_ingredients, get_nutrition, get_calories_burned,
-    get_holidays, call_ai, calc_bmi,
+    get_holidays, call_ai, calc_bmi, rewrite_text, fetch_youtube,
 )
 from line_push import reply_text as reply
 
@@ -121,6 +121,22 @@ def _handle_utils(reply_token: str, text: str) -> bool:
             reply(reply_token, "\n".join(lines))
         else:
             reply(reply_token, call_ai(f"請告訴我做「{activity}」{duration}分鐘大約消耗多少卡路里"))
+        return True
+
+    # ── 找影片 ──
+    m = re.match(r"^找影片\s+(.+)$", text)
+    if m:
+        reply(reply_token, fetch_youtube(m.group(1).strip()))
+        return True
+
+    # ── 改寫文案 ──
+    m = re.match(r"^改寫\s+(.+)$", text, re.DOTALL)
+    if m:
+        result = rewrite_text(m.group(1).strip())
+        if result:
+            reply(reply_token, f"✍️ 改寫結果：\n\n{result}")
+        else:
+            reply(reply_token, "改寫服務暫時無法使用，請稍後再試")
         return True
 
     # ── 節假日 ──

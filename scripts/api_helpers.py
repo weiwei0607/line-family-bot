@@ -630,6 +630,39 @@ def get_tts_audio(filename: str) -> tuple[bytes, str] | None:
         logger.warning("API error: %s", _exc)
     return None
 
+# ── YouTube 搜尋（RapidAPI）───────────────────────
+
+def fetch_youtube(query: str) -> str:
+    """搜尋 YouTube 影片，回傳格式化的文字結果。"""
+    key = os.environ.get("RAPIDAPI_KEY", "")
+    if not key:
+        return "需要設定 RAPIDAPI_KEY 才能搜尋影片"
+    try:
+        r = requests.get(
+            "https://youtube-v31.p.rapidapi.com/search",
+            headers={"x-rapidapi-key": key, "x-rapidapi-host": "youtube-v31.p.rapidapi.com"},
+            params={"q": query, "part": "snippet", "type": "video", "maxResults": "3", "regionCode": "TW"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            d = r.json()
+            items = d.get("items", [])
+            if not items:
+                return f"🎬 找不到「{query}」相關影片"
+            lines = [f"🎬 找到以下影片：\n"]
+            for item in items[:3]:
+                snippet = item.get("snippet", {})
+                vid_id = item.get("id", {}).get("videoId", "")
+                title = snippet.get("title", "")
+                channel = snippet.get("channelTitle", "")
+                if vid_id:
+                    lines.append(f"• {title}\n  {channel}\n  https://youtu.be/{vid_id}")
+            return "\n".join(lines)
+    except Exception as _exc:
+        logger.warning("fetch_youtube error: %s", _exc)
+    return f"🎬 搜尋「{query}」失敗，待會再試"
+
+
 # ─── Lazy imports for cold-start optimization ─────────────
 _LAZY_SUBMODULES = [
     "weather_api", "entertainment_api", "finance_api",
