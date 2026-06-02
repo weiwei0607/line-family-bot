@@ -1,4 +1,5 @@
 """Help / instruction list handler."""
+from __future__ import annotations
 
 from line_push import reply_text as reply
 

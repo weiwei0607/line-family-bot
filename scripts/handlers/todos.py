@@ -91,6 +91,7 @@ _TIME_EXPR = r'(?:今晚|今天晚上|晚上|早上|上午|下午|中午|凌晨|
 
 def _extract_reminder(text: str) -> tuple | None:
     """Parse reminder text, supporting with or without spaces."""
+from __future__ import annotations
     # Pattern 1: 提醒我 明天 交報告 / 提醒我明天交報告
     m = re.match(r'^提醒我\s*(今天|明天|後天|大後天|明日)\s*(.*)', text)
     if m:

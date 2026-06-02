@@ -3,6 +3,8 @@ Google Sheets helper — 家庭群機器人資料層
 Tabs: 家事清單, 點數記錄, 購物清單, 記帳, 設定
 """
 
+from __future__ import annotations
+
 import os
 import json
 import time

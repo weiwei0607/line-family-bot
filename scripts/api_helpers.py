@@ -746,6 +746,7 @@ _LAZY_SUBMODULES = [
 
 def __getattr__(name: str):
     """Lazy-load functions from split submodules to speed up cold starts."""
+from __future__ import annotations
     for mod in _LAZY_SUBMODULES:
         try:
             submodule = __import__(mod, globals(), locals(), [name])
