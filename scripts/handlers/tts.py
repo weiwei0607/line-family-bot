@@ -13,7 +13,7 @@ def _handle_tts(reply_token: str, text: str) -> bool:
     Handle TTS commands: '念/唸/說/讀 [text]'.
     Returns True if handled.
     """
-    m = re.match(r"^(?:念|唸|說|讀)\s+(.+)", text)
+    m = re.match(r"^(?:念|唸|說|讀)(?:出來)?\s*(.+)", text)
     if m:
         to_speak = m.group(1).strip()
         tts_result = text_to_speech(to_speak, "zh-TW")
