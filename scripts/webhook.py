@@ -364,21 +364,21 @@ def webhook():
     threading.Thread(target=_dispatch_webhook, args=(body, signature), daemon=True).start()
     return "OK"
 
-def _process_text_message(reply_token: str, text: str, source, member: str = ""):
-    """處理文字訊息的核心邏輯（文字/語音轉文字共用）"""
+def _process_text_message(reply_token: str, text: str, source, member: str = "") -> bool:
+    """處理文字訊息的核心邏輯（文字/語音轉文字共用）。回傳 True 表示已由指令處理。"""
     # ── 待辦提醒 ──
     from handlers.todos import handle_add_todo, handle_view_todos, handle_complete_todo
     if text.startswith("提醒"):
         reply(reply_token, handle_add_todo(member, text))
-        return
+        return True
     if text in ["待辦清單", "待辦", "我的待辦"]:
         reply(reply_token, handle_view_todos())
-        return
+        return True
     if text.startswith("完成待辦"):
         result = handle_complete_todo(member, text)
         if result:
             reply(reply_token, result)
-            return
+            return True
 
     if (
         handle_admin(reply_token, source, text) or
@@ -393,7 +393,7 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
         handle_fun(reply_token, source, text, member) or
         handle_ai_mention(reply_token, text)
     ):
-        return
+        return True
 
     # 拼字容錯：短指令找最接近的
     _KNOWN_COMMANDS = [
@@ -408,6 +408,9 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
         close = difflib.get_close_matches(text, _KNOWN_COMMANDS, n=1, cutoff=0.6)
         if close:
             reply(reply_token, f"你是想說「{close[0]}」嗎？試試傳那個指令 😊")
+            return True
+
+    return False
 
 
 @handler.add(MessageEvent, message=TextMessageContent)
@@ -429,12 +432,10 @@ def handle_message(event: MessageEvent):
 
     member = resolve_member(user_id) if user_id else ""
 
-    # 記錄使用者訊息
-    _memory.record(member or "家人", text)
-
     # 被 @ 提及時，先試指令，再 AI（Groq 優先）
     if hasattr(event.message, "mention") and event.message.mention:
         clean = re.sub(r"^@?\S+\s*", "", text).strip() or text
+        _memory.record(member or "家人", clean)  # @提及一定是對話，直接記
         if not handle_fun(reply_token, event.source, clean, member):
             ctx = _memory.format_for_ai()
             prompt = (
@@ -447,7 +448,10 @@ def handle_message(event: MessageEvent):
             reply(reply_token, answer)
         return
 
-    _process_text_message(reply_token, text, event.source, member)
+    # 一般訊息：沒被指令處理才記（過濾掉「收拾 客廳」之類的命令）
+    handled = _process_text_message(reply_token, text, event.source, member)
+    if not handled:
+        _memory.record(member or "家人", text)
 
 
 # ── 語音訊息處理（Speech-to-Text）────────────────
