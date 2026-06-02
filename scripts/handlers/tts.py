@@ -28,7 +28,7 @@ def _handle_tts(reply_token: str, text: str) -> bool:
             else:
                 reply(reply_token, "🔊 需要設定 RENDER_EXTERNAL_URL 才能發送語音")
         else:
-            reply(reply_token, "🔊 語音功能目前無法使用（RapidAPI 免費版不支援）")
+            reply(reply_token, "🔊 語音合成暫時失敗，請稍後再試 😢")
         return True
 
     return False

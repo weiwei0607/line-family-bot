@@ -395,9 +395,6 @@ _EDGE_TTS_VOICES = {
         "zh-CN-XiaoruiNeural",     # 女
         "zh-CN-XiaoyanNeural",     # 女
         "zh-CN-XiaozhenNeural",    # 女
-        "zh-HK-HiuMaanNeural",     # 女，粵語也懂繁體
-        "zh-HK-HiuGaaiNeural",     # 女
-        "zh-HK-WanLungNeural",     # 男
     ],
     "zh-CN": ["zh-CN-XiaoxiaoNeural", "zh-CN-YunyangNeural"],
     "en": ["en-US-JennyNeural", "en-US-GuyNeural"],
@@ -423,9 +420,12 @@ def text_to_speech(text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
 
         audio_bytes = asyncio.run(_synth())
         if audio_bytes and len(audio_bytes) > 100:
+            logger.info("TTS success: voice=%s text_len=%d bytes=%d", voice, len(text), len(audio_bytes))
             return audio_bytes, "audio/mpeg"
+        logger.warning("TTS empty audio: voice=%s", voice)
         return None
-    except Exception:
+    except Exception as exc:
+        logger.warning("TTS failed: voice=%s error=%s", voice, exc)
         return None
 
 
