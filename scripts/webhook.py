@@ -55,6 +55,10 @@ from handlers import (
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB max payload
 
+import memory as _memory
+from sheets import bg as _bg
+_bg(_memory.load_from_sheets)  # 啟動時從 Sheets 還原對話歷史
+
 
 @app.before_request
 def _before_request():
@@ -425,13 +429,21 @@ def handle_message(event: MessageEvent):
 
     member = resolve_member(user_id) if user_id else ""
 
+    # 記錄使用者訊息
+    _memory.record(member or "家人", text)
+
     # 被 @ 提及時，先試指令，再 AI（Groq 優先）
     if hasattr(event.message, "mention") and event.message.mention:
         clean = re.sub(r"^@?\S+\s*", "", text).strip() or text
         if not handle_fun(reply_token, event.source, clean, member):
-            answer = call_ai(
-                f"你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。\n\n問題：{clean}"
+            ctx = _memory.format_for_ai()
+            prompt = (
+                "你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。"
+                + (f"\n\n{ctx}" if ctx else "")
+                + f"\n\n問題：{clean}"
             )
+            answer = call_ai(prompt)
+            _memory.record("機器人", answer)
             reply(reply_token, answer)
         return
 
