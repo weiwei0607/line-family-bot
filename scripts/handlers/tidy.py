@@ -34,15 +34,16 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
             elif content.startswith("公共 ") or content.startswith("公用 "):
                 area = "公共"
                 content = content[3:].strip()
-        # 優先使用已解析的 member，沒有再嘗試抓 LINE profile
-        if not member:
+        # 優先使用已解析的 member（限定有效成員），沒有再嘗試抓 LINE profile
+        _VALID_MEMBERS = {"爸爸", "媽媽", "姊姊", "妹妹"}
+        if not member or member not in _VALID_MEMBERS:
             try:
                 with ApiClient(configuration) as api_client:
                     profile = MessagingApi(api_client).get_profile(getattr(source, "user_id", ""))
                     member = profile.display_name
             except Exception as _exc:
                 logger.warning("Silent error: %s", _exc)
-        if not member:
+        if not member or member not in _VALID_MEMBERS:
             member = "家人"
         add_tidy_log(member, area, content)
         area_emoji = "🏠" if area == "自己" else "🛋" if area == "公共" else "📦"
