@@ -22,7 +22,7 @@ from line_push import (
 )
 from api_helpers import (
     text_to_speech, save_tts_audio, get_tts_audio,
-    call_gemini, groq_stt,
+    call_gemini, call_ai, groq_stt,
 )
 
 from handlers import (
@@ -166,7 +166,10 @@ def handle_ai_mention(reply_token: str, text: str):
     m = re.match(r"^@?(?:機器人|家管|bot|助理|小花)\s+(.+)", text, re.IGNORECASE)
     if m:
         question = m.group(1).strip()
-        answer = call_gemini(
+        # 先嘗試走指令處理（天氣、星座等）
+        if handle_fun(reply_token, None, question):
+            return True
+        answer = call_ai(
             f"你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。\n\n問題：{question}"
         )
         reply(reply_token, answer)
@@ -354,12 +357,14 @@ def handle_message(event: MessageEvent):
 
     member = resolve_member(user_id) if user_id else ""
 
-    # 被 @ 提及時直接 AI 回答（LINE SDK v3: mention 在 message 裡，不在 source 裡）
+    # 被 @ 提及時，先試指令，再 AI（Groq 優先）
     if hasattr(event.message, "mention") and event.message.mention:
-        answer = call_gemini(
-            f"你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。\n\n問題：{text}"
-        )
-        reply(reply_token, answer)
+        clean = re.sub(r"^@?\S+\s*", "", text).strip() or text
+        if not handle_fun(reply_token, event.source, clean, member):
+            answer = call_ai(
+                f"你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。\n\n問題：{clean}"
+            )
+            reply(reply_token, answer)
         return
 
     _process_text_message(reply_token, text, event.source, member)

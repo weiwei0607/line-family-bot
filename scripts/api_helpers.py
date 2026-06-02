@@ -128,6 +128,17 @@ def _retry_http(fn, max_retries=3, backoff=2):
     return retry_http(max_retries=max_retries, backoff=backoff)(fn)()
 
 
+def call_ai(prompt: str) -> str:
+    """Groq 優先，失敗或限速時 fallback 到 Gemini。"""
+    try:
+        result = call_groq(prompt)
+        if result:
+            return result
+    except Exception:
+        pass
+    return call_gemini(prompt)
+
+
 def call_gemini(prompt: str) -> str:
     key = _gemini_key()
     prompt = sanitize_input(prompt)
