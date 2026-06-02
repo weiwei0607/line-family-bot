@@ -137,6 +137,14 @@ def handle_add_todo(member: str, text: str) -> str:
         return f"看不懂日期「{date_s}」\n支援：今天/明天/後天/6月5日/6/5"
 
     time_str = _extract_time(content) or ""
+
+    # 防呆：檢查是否已有相同待辦
+    existing = get_todos(only_pending=True)
+    dup = [t for t in existing if t["member"] == target and t["date"] == date_str
+           and t["content"] == content]
+    if dup:
+        return f"⚠️ {target} 在 {date_str[5:].replace('-', '/')} 已經有一筆「{content}」了！\n不要重複記喔 😄"
+
     ok = add_todo(target, date_str, content, member or "", time_str=time_str)
     if not ok:
         return "記錄失敗，等一下再試 😢"
