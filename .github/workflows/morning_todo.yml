@@ -23,3 +23,5 @@ jobs:
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           FAMILY_SHEET_ID: ${{ secrets.FAMILY_SHEET_ID }}
           POINTS_THRESHOLD: '5'
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
