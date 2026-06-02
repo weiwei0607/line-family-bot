@@ -44,3 +44,13 @@ services:
         sync: false
       - key: ABSTRACT_KEY
         sync: false
+      - key: ALPHA_VANTAGE_KEY
+        sync: false
+      - key: GIPHY_KEY
+        sync: false
+      - key: NEWSAPI_KEY
+        sync: false
+      - key: PEXELS_KEY
+        sync: false
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
