@@ -391,16 +391,21 @@ def check_reminders():
             except (ValueError, IndexError):
                 continue
             due = _dt(now.year, now.month, now.day, todo_hour, todo_min, tzinfo=TW_TZ)
+            # Skip if due time was more than 1 hour ago and never reminded (stale)
+            if reminded == 0 and now > due + _td(hours=1):
+                continue
             trigger = due + _td(minutes=30 * reminded)
             if now < trigger:
                 continue
 
             if reminded == 0:
-                msg = f"🔔 提醒時間到！\n📌 {member}：{content}"
+                msg = f"🔔 提醒時間到！\n📌 {member}：{content}\n\n完成後傳「完成待辦 {content[:10]}」，否則 30 分鐘後會繼續叫你 😤"
                 voice_text = f"提醒時間到！{member}，{voice_content}！"
             else:
                 bells = "🔔" * (reminded + 1)
-                msg = f"{bells} 還沒完成喔！\n📌 {member}：{content}\n完成後傳「完成待辦 {content[:10]}」"
+                remaining = 3 - reminded - 1
+                suffix = f"（還差 {remaining} 次就放棄了）" if remaining > 0 else "（最後一次了，拜託快去做！）"
+                msg = f"{bells} 還沒做喔！\n📌 {member}：{content}\n完成後傳「完成待辦 {content[:10]}」{suffix}"
                 voice_text = f"{member}，{voice_content}還沒完成喔！快去做！"
             _send_reminder(t, msg, voice_text, reminded + 1)
         else:
