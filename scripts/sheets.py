@@ -169,13 +169,40 @@ def _update_cell(tab, cell, value):
             raise RuntimeError(f"Google Sheets 工作表「{tab}」不存在，請先建立該工作表") from e
         raise
 
-def bg(fn, *args):
-    def _wrapped():
+# ── Background task queue (single worker thread to avoid thread explosion) ──
+_bg_queue: "queue.Queue[tuple]" | None = None
+_bg_thread: threading.Thread | None = None
+_bg_lock = threading.Lock()
+
+
+def _bg_worker():
+    import queue
+    while True:
+        try:
+            fn, args = _bg_queue.get(timeout=30)
+        except queue.Empty:
+            continue
         try:
             fn(*args)
         except Exception:
             logger.exception("bg task failed: %s", getattr(fn, "__name__", repr(fn)))
-    threading.Thread(target=_wrapped, daemon=True).start()
+        finally:
+            _bg_queue.task_done()
+
+
+def bg(fn, *args):
+    global _bg_queue, _bg_thread
+    with _bg_lock:
+        if _bg_queue is None:
+            import queue
+            _bg_queue = queue.Queue(maxsize=1000)
+        if _bg_thread is None or not _bg_thread.is_alive():
+            _bg_thread = threading.Thread(target=_bg_worker, daemon=True)
+            _bg_thread.start()
+    try:
+        _bg_queue.put((fn, args), block=False)
+    except Exception:
+        logger.warning("bg queue full, dropping task: %s", getattr(fn, "__name__", repr(fn)))
 
 
 # ──────────────────────────────────────────────

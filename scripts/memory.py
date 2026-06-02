@@ -8,7 +8,7 @@
 
 import logging
 import threading
-from collections import deque
+from collections import deque, OrderedDict
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -21,9 +21,10 @@ _CONTEXT_SIZE = 20
 _MAX_MSG_LEN = 300
 _EPHEMERAL_TTL_HOURS = 2
 _SHEETS_MAX_ROWS = 500
+_MAX_GROUPS = 20           # 限制同時存在的群組緩衝區數量
 
-# 每個 group_id 一個獨立 deque
-_buffers: dict[str, deque] = {}
+# 每個 group_id 一個獨立 deque，用 OrderedDict 實現 LRU 淘汰
+_buffers: OrderedDict[str, deque] = OrderedDict()
 _lock = threading.Lock()
 _loaded = False
 
@@ -41,9 +42,17 @@ def _gid() -> str:
 
 
 def _buf(group_id: str) -> deque:
-    if group_id not in _buffers:
+    with _lock:
+        if group_id in _buffers:
+            # 移到最後（最新使用）
+            _buffers.move_to_end(group_id)
+            return _buffers[group_id]
+        # 淘汰最舊的群組如果超過上限
+        while len(_buffers) >= _MAX_GROUPS:
+            oldest_gid, _ = _buffers.popitem(last=False)
+            logger.info("memory: evicted buffer for group %s", oldest_gid)
         _buffers[group_id] = deque(maxlen=_BUFFER_SIZE)
-    return _buffers[group_id]
+        return _buffers[group_id]
 
 
 # ── 寫入 ──────────────────────────────────────────────────────────────────
@@ -119,9 +128,10 @@ def load_from_sheets(n: int = _BUFFER_SIZE):
     try:
         from sheets import _read, _ensure_tab
         _ensure_tab(_TAB)
-        rows = _read(_TAB, "A2:D5000")
+        # 先讀取總行數，只抓最近 200 行（減少啟動時記憶體與 API 消耗）
+        rows = _read(_TAB, "A2:D200")
         total = len(rows)
-        if total > _SHEETS_MAX_ROWS:
+        if total >= _SHEETS_MAX_ROWS:
             _prune_sheets(rows)
             rows = rows[-_SHEETS_MAX_ROWS:]
         with _lock:
@@ -142,14 +152,17 @@ def load_from_sheets(n: int = _BUFFER_SIZE):
 
 
 def _prune_sheets(all_rows: list):
-    """把 Sheets 修剪到最新 _SHEETS_MAX_ROWS 行。"""
+    """把 Sheets 修剪到最新 _SHEETS_MAX_ROWS 行。只清除實際有資料的範圍，避免誤刪。"""
     try:
         from sheets import _get_service, _get_sheet_id
         keep = all_rows[-_SHEETS_MAX_ROWS:]
         svc = _get_service()
         sid = _get_sheet_id()
+        total_rows = len(all_rows)
+        # 只清除實際有資料的範圍（A2 開始）
+        clear_range = f"{_TAB}!A2:D{total_rows + 1}"
         svc.spreadsheets().values().clear(
-            spreadsheetId=sid, range=f"{_TAB}!A2:D50000"
+            spreadsheetId=sid, range=clear_range
         ).execute()
         if keep:
             svc.spreadsheets().values().update(
