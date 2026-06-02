@@ -356,45 +356,9 @@ def check_reminders():
     today = now.strftime("%Y-%m-%d")
     todos = get_todos(only_pending=True)
 
-    sent = 0
-    for t in todos:
-        if t["date"] != today:
-            continue
-        time_str = t.get("time", "").strip()
-        if not time_str:
-            continue
-        reminded = t.get("reminded_count", 0)
-        if reminded >= 3:
-            continue
-
-        try:
-            todo_hour, todo_min = int(time_str[:2]), int(time_str[3:5])
-        except (ValueError, IndexError):
-            continue
-
-        due = _dt(now.year, now.month, now.day, todo_hour, todo_min, tzinfo=TW_TZ)
-        # First reminder at due time; subsequent ones every 30 min
-        trigger = due + _td(minutes=30 * reminded)
-        if now < trigger:
-            continue
-
-        member = t["member"]
-        content = t["content"]
-        created_by = t.get("created_by", "")
-        # 語音內容：把「我」換成創建者，讓被提醒人知道是幫誰做事
-        voice_content = content.replace("我", created_by) if created_by else content
-
-        if reminded == 0:
-            msg = f"🔔 提醒時間到！\n📌 {member}：{content}"
-            voice_text = f"提醒時間到！{member}，{voice_content}！"
-        else:
-            bells = "🔔" * (reminded + 1)
-            msg = f"{bells} 還沒完成喔！\n📌 {member}：{content}\n完成後傳「完成待辦 {content[:10]}」"
-            voice_text = f"{member}，{voice_content}還沒完成喔！快去做！"
-
+    def _send_reminder(t, msg, voice_text, new_count):
+        nonlocal sent
         push_messages(group_id, [{"type": "text", "text": msg}])
-
-        # ── 語音提醒 ──
         base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
         if base_url:
             tts_result = text_to_speech(voice_text, "zh-TW")
@@ -404,9 +368,50 @@ def check_reminders():
                 audio_url = f"{base_url}/tts/{fname}"
                 duration = min(len(voice_text) * 300 + 1000, 30000)
                 push_messages(group_id, [{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
-
-        update_todo_reminder(t["row"], reminded + 1)
+        update_todo_reminder(t["row"], new_count)
         sent += 1
+
+    sent = 0
+    for t in todos:
+        if t["date"] != today:
+            continue
+        time_str = t.get("time", "").strip()
+        reminded = t.get("reminded_count", 0)
+        member = t["member"]
+        content = t["content"]
+        created_by = t.get("created_by", "")
+        voice_content = content.replace("我", created_by) if created_by else content
+
+        if time_str:
+            # ── 有時間：奪命連環扣（最多 3 次）──
+            if reminded >= 3:
+                continue
+            try:
+                todo_hour, todo_min = int(time_str[:2]), int(time_str[3:5])
+            except (ValueError, IndexError):
+                continue
+            due = _dt(now.year, now.month, now.day, todo_hour, todo_min, tzinfo=TW_TZ)
+            trigger = due + _td(minutes=30 * reminded)
+            if now < trigger:
+                continue
+
+            if reminded == 0:
+                msg = f"🔔 提醒時間到！\n📌 {member}：{content}"
+                voice_text = f"提醒時間到！{member}，{voice_content}！"
+            else:
+                bells = "🔔" * (reminded + 1)
+                msg = f"{bells} 還沒完成喔！\n📌 {member}：{content}\n完成後傳「完成待辦 {content[:10]}」"
+                voice_text = f"{member}，{voice_content}還沒完成喔！快去做！"
+            _send_reminder(t, msg, voice_text, reminded + 1)
+        else:
+            # ── 沒時間：晚上 20:00 提醒一次（不連環扣）──
+            if reminded >= 1:
+                continue
+            if now.hour < 20:
+                continue
+            msg = f"🔔 今日待辦提醒！\n📌 {member}：{content}"
+            voice_text = f"今日待辦提醒！{member}，{voice_content}！"
+            _send_reminder(t, msg, voice_text, 1)
 
     return f"sent {sent} reminders", 200
 
