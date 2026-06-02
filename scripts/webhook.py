@@ -59,6 +59,13 @@ import memory as _memory
 from sheets import bg as _bg
 _bg(_memory.load_from_sheets)  # 啟動時從 Sheets 還原對話歷史
 
+# 包裝 reply，讓機器人所有回覆自動記入短暫記憶
+_raw_reply = reply
+def reply(token: str, text: str, **kw):
+    if text:
+        _memory.record_ephemeral("機器人", text)
+    return _raw_reply(token, text, **kw)
+
 
 @app.before_request
 def _before_request():

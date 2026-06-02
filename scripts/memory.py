@@ -18,6 +18,7 @@ _TAB = "對話紀錄"
 _BUFFER_SIZE = 60
 _CONTEXT_SIZE = 20   # 給 AI 的最近幾條
 _MAX_MSG_LEN  = 300  # 存 Sheets 時截斷超長訊息
+_EPHEMERAL_TTL_HOURS = 2  # 短暫記憶保留時間
 
 _buffer: deque = deque(maxlen=_BUFFER_SIZE)
 _lock = threading.Lock()
@@ -36,6 +37,14 @@ def record(speaker: str, message: str):
     bg(_save_one, ts, speaker, message)
 
 
+def record_ephemeral(speaker: str, message: str):
+    """短暫記憶：只存緩衝區，不寫 Sheets，超過 TTL 自動過濾。"""
+    ts = datetime.now(TZ).isoformat()
+    entry = {"ts": ts, "speaker": speaker, "message": message, "ephemeral": True}
+    with _lock:
+        _buffer.append(entry)
+
+
 def _save_one(ts: str, speaker: str, message: str):
     try:
         from sheets import _append, _ensure_tab
@@ -48,8 +57,15 @@ def _save_one(ts: str, speaker: str, message: str):
 # ── 讀取 ──────────────────────────────────────────────────────────────────
 
 def get_recent(n: int = _CONTEXT_SIZE) -> list[dict]:
+    now = datetime.now(TZ)
+    cutoff_ts = now.timestamp() - _EPHEMERAL_TTL_HOURS * 3600
     with _lock:
-        return list(_buffer)[-n:]
+        valid = [
+            m for m in _buffer
+            if not m.get("ephemeral")
+            or datetime.fromisoformat(m["ts"]).timestamp() > cutoff_ts
+        ]
+        return valid[-n:]
 
 
 def format_for_ai(n: int = _CONTEXT_SIZE) -> str:
