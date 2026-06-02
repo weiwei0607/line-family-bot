@@ -18,7 +18,11 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
     Returns True if handled.
     """
     if text in ["收拾", "整理"]:
-        reply(reply_token, format_tidy_summary())
+        try:
+            reply(reply_token, format_tidy_summary())
+        except Exception as exc:
+            logger.exception("format_tidy_summary failed: %s", exc)
+            reply(reply_token, f"❌ 讀取收拾紀錄失敗：{type(exc).__name__}")
         return True
 
     m_tidy = re.match(r"^(收拾|整理)\s*(.+)", text)
@@ -45,9 +49,13 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
                 logger.warning("Silent error: %s", _exc)
         if not member or member not in _VALID_MEMBERS:
             member = "家人"
-        add_tidy_log(member, area, content)
-        area_emoji = "🏠" if area == "自己" else "🛋" if area == "公共" else "📦"
-        reply(reply_token, f"✅ 已記錄！\n{area_emoji} {member} → {content}（{area}區域）\n\n傳「收拾」查看今天全家紀錄")
+        try:
+            add_tidy_log(member, area, content)
+            area_emoji = "🏠" if area == "自己" else "🛋" if area == "公共" else "📦"
+            reply(reply_token, f"✅ 已記錄！\n{area_emoji} {member} → {content}（{area}區域）\n\n傳「收拾」查看今天全家紀錄")
+        except Exception as exc:
+            logger.exception("add_tidy_log failed: %s", exc)
+            reply(reply_token, f"❌ 記錄收拾失敗：{type(exc).__name__}，請稍後再試")
         return True
 
     return False

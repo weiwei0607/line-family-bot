@@ -117,6 +117,13 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
 
     group_id = getattr(source, "group_id", None) or getattr(source, "room_id", "default")
 
+    # ── 小白（掃地機器人）維護紀錄 ──
+    from vacuum_tracker import handle as vacuum_handle
+    reply_text = vacuum_handle(text, user=member or "家人")
+    if reply_text:
+        reply(reply_token, reply_text)
+        return True
+
     # ── Simple dispatch (fast path for stateless commands) ──
     from dispatch_fun import try_dispatch
     if try_dispatch(text, lambda t: reply(reply_token, t)):
