@@ -9,6 +9,7 @@ from api_helpers import (
     get_wikipedia, get_world_time, get_country_info,
     search_recipes_by_ingredients, get_nutrition, get_calories_burned,
     get_holidays, call_ai, calc_bmi, rewrite_text, fetch_youtube,
+    check_grammar,
 )
 from line_push import reply_text as reply
 
@@ -137,6 +138,28 @@ def _handle_utils(reply_token: str, text: str) -> bool:
             reply(reply_token, f"✍️ 改寫結果：\n\n{result}")
         else:
             reply(reply_token, "改寫服務暫時無法使用，請稍後再試")
+        return True
+
+    # ── 英文文法檢查 ──
+    m = re.match(r"^(?:文法檢查|grammar)\s+(.+)$", text, re.IGNORECASE)
+    if m:
+        sentence = m.group(1).strip()
+        result = check_grammar(sentence)
+        if result and result.get("corrected"):
+            errors = result.get("errors", [])
+            if errors:
+                err_lines = []
+                for e in errors[:3]:
+                    bad = e.get("bad", "")
+                    better = e.get("better", [])
+                    better_str = f"→ {' / '.join(better[:2])}" if better else ""
+                    err_lines.append(f"• 「{bad}」{better_str}")
+                reply(reply_token,
+                      f"📝 文法檢查結果\n\n原文：{sentence}\n\n修正：{result['corrected']}\n\n問題：\n" + "\n".join(err_lines))
+            else:
+                reply(reply_token, f"📝 文法檢查結果\n\n原文：{sentence}\n\n✅ 沒有發現明顯錯誤")
+        else:
+            reply(reply_token, "文法檢查服務暫時無法使用，請稍後再試")
         return True
 
     # ── 節假日 ──
