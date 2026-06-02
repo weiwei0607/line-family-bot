@@ -8,7 +8,7 @@ from datetime import datetime as _dt
 from api_helpers import (
     get_wikipedia, get_world_time, get_country_info,
     search_recipes_by_ingredients, get_nutrition, get_calories_burned,
-    get_holidays, call_gemini, calc_bmi,
+    get_holidays, call_ai, calc_bmi,
 )
 from line_push import reply_text as reply
 
@@ -27,7 +27,7 @@ def _handle_utils(reply_token: str, text: str) -> bool:
         if info and info.get("extract"):
             reply(reply_token, f"📖 {info['title']}\n\n{info['extract'][:300]}")
         else:
-            reply(reply_token, f"📖 {query}\n\n{call_gemini(f'用繁體中文簡短介紹「{query}」，2-3句。')}")
+            reply(reply_token, f"📖 {query}\n\n{call_ai(f'用繁體中文簡短介紹「{query}」，2-3句。')}")
         return True
 
     # ── 世界時間 ──
@@ -85,7 +85,7 @@ def _handle_utils(reply_token: str, text: str) -> bool:
                 lines.append(f"• {r.get('title', '')}")
             reply(reply_token, "\n".join(lines))
         else:
-            reply(reply_token, call_gemini(f"根據食材「{m.group(1)}」推薦一道家常料理和做法"))
+            reply(reply_token, call_ai(f"根據食材「{m.group(1)}」推薦一道家常料理和做法"))
         return True
 
     # ── 熱量查詢 ──
@@ -120,7 +120,7 @@ def _handle_utils(reply_token: str, text: str) -> bool:
                 lines.append(f"• {it.get('name', activity)}：約 {total} 卡")
             reply(reply_token, "\n".join(lines))
         else:
-            reply(reply_token, call_gemini(f"請告訴我做「{activity}」{duration}分鐘大約消耗多少卡路里"))
+            reply(reply_token, call_ai(f"請告訴我做「{activity}」{duration}分鐘大約消耗多少卡路里"))
         return True
 
     # ── 節假日 ──

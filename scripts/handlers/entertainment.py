@@ -6,7 +6,7 @@ Drinks, movies, NASA APOD.
 import re
 from api_helpers import (
     get_cocktail, get_movie, get_streaming, get_nasa_apod,
-    smart_translate, call_gemini, QUOTA_MSG,
+    smart_translate, call_ai, QUOTA_MSG,
 )
 from line_push import reply_text as reply, reply_image_with_text
 
@@ -59,7 +59,7 @@ def _handle_entertainment(reply_token: str, text: str) -> bool:
             instr = smart_translate(instr_raw)
             reply(reply_token, f"🍹 {data.get('name', '')}\n\n食材：{ingr}\n\n{instr}")
         else:
-            reply(reply_token, call_gemini("推薦一款適合家庭的飲料或果汁，給出名稱和簡單做法"))
+            reply(reply_token, call_ai("推薦一款適合家庭的飲料或果汁，給出名稱和簡單做法"))
         return True
 
     # ── 電影 ──
@@ -70,7 +70,7 @@ def _handle_entertainment(reply_token: str, text: str) -> bool:
         if movie:
             _send_movie(reply_token, movie)
         else:
-            reply(reply_token, call_gemini("推薦一部適合全家看的電影，給出片名、年份、一句理由"))
+            reply(reply_token, call_ai("推薦一部適合全家看的電影，給出片名、年份、一句理由"))
         return True
 
     m = re.match(r"^電影\s+(.+)$", text)
@@ -113,7 +113,7 @@ def _handle_entertainment(reply_token: str, text: str) -> bool:
             return True
         if apod:
             title_zh = smart_translate(apod['title'])
-            explain_zh = call_gemini(
+            explain_zh = call_ai(
                 f"翻成繁體中文，100字以內，保持有趣：{apod['explanation']}"
             )
             caption = f"🔭 {title_zh}（{apod['date']}）\n\n{explain_zh}"

@@ -5,7 +5,7 @@ Japanese lookup, Spanish lookup, translation.
 
 import re
 from language_api import get_jisho, get_kanji_info, get_spanish_dict
-from api_helpers import translate_text, smart_translate, call_gemini
+from api_helpers import translate_text, smart_translate, call_ai
 from line_push import reply_text as reply
 
 
@@ -49,7 +49,7 @@ def _handle_language(reply_token: str, text: str) -> bool:
                      f"意思：{meanings_zh}"]
             reply(reply_token, "\n".join(lines))
         else:
-            reply(reply_token, call_gemini(f"用繁體中文解釋日文單字「{word}」的意思和讀音"))
+            reply(reply_token, call_ai(f"用繁體中文解釋日文單字「{word}」的意思和讀音"))
         return True
 
     # ── 漢字查詢 ──
@@ -69,7 +69,7 @@ def _handle_language(reply_token: str, text: str) -> bool:
                   f"意思：{meanings}\n"
                   f"筆畫：{data['stroke_count']}　{jlpt}")
         else:
-            reply(reply_token, call_gemini(f"用繁體中文解釋日文漢字「{char}」的讀音和意思"))
+            reply(reply_token, call_ai(f"用繁體中文解釋日文漢字「{char}」的讀音和意思"))
         return True
 
     # ── 西班牙文查詢 ──
@@ -84,7 +84,7 @@ def _handle_language(reply_token: str, text: str) -> bool:
             reply(reply_token,
                   f"🇪🇸 {data['word']}{phonetic}\n\n{defs_zh}")
         else:
-            reply(reply_token, call_gemini(
+            reply(reply_token, call_ai(
                 f"用繁體中文解釋西班牙文單字「{word}」的意思、詞性和一個例句"
             ))
         return True
