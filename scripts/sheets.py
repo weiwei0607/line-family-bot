@@ -964,18 +964,26 @@ def update_todo_reminder(row: int, reminded_count: int):
     _update_cell("待辦", f"H{row}", reminded_count)
 
 
-def complete_todo_by_content(member: str, content: str) -> dict | None:
-    """Mark matching pending todo as done. Returns todo dict or None."""
+def find_todos_by_content(member: str, content: str) -> list[dict]:
+    """Find all pending todos matching content. Returns list of todo dicts."""
     try:
         todos = get_todos(only_pending=True)
-        matched = next(
-            (t for t in todos if content in t["content"] or t["content"] in content),
-            None,
-        )
-        if not matched:
-            return None
-        _update_cell("待辦", f"E{matched['row']}", "已完成")
-        return matched
+        return [t for t in todos if content in t["content"] or t["content"] in content]
+    except Exception as e:
+        logger.warning("find_todos_by_content failed: %s", e)
+        return []
+
+
+def complete_todo_by_content(member: str, content: str) -> dict | None:
+    """Mark matching pending todo as done. Returns todo dict or None."""
+    matched = find_todos_by_content(member, content)
+    if not matched:
+        return None
+    if len(matched) > 1:
+        return {"multiple": True, "items": matched}
+    try:
+        _update_cell("待辦", f"E{matched[0]['row']}", "已完成")
+        return matched[0]
     except Exception as e:
         logger.warning("complete_todo_by_content failed: %s", e)
         return None
@@ -983,14 +991,12 @@ def complete_todo_by_content(member: str, content: str) -> dict | None:
 
 def delete_todo_by_content(member: str, content: str) -> dict | None:
     """Delete matching pending todo row completely. Returns todo dict or None."""
+    matched = find_todos_by_content(member, content)
+    if not matched:
+        return None
+    if len(matched) > 1:
+        return {"multiple": True, "items": matched}
     try:
-        todos = get_todos(only_pending=True)
-        matched = next(
-            (t for t in todos if content in t["content"] or t["content"] in content),
-            None,
-        )
-        if not matched:
-            return None
         svc = _get_service()
         sid = _get_sheet_id()
         meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
@@ -1001,7 +1007,7 @@ def delete_todo_by_content(member: str, content: str) -> dict | None:
                 break
         if sheet_id is None:
             return None
-        row_index = matched["row"] - 1  # API uses 0-based index
+        row_index = matched[0]["row"] - 1
         svc.spreadsheets().batchUpdate(
             spreadsheetId=sid,
             body={
@@ -1019,7 +1025,7 @@ def delete_todo_by_content(member: str, content: str) -> dict | None:
                 ]
             },
         ).execute()
-        return matched
+        return matched[0]
     except Exception as e:
         logger.warning("delete_todo_by_content failed: %s", e)
         return None

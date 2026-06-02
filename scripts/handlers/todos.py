@@ -4,10 +4,10 @@ Todo / reminder management handlers for family bot.
 
 import re
 from datetime import datetime, timedelta
-from sheets import add_todo, get_todos, complete_todo_by_content, delete_todo_by_content, TW_TZ
+from sheets import add_todo, get_todos, complete_todo_by_content, delete_todo_by_content, find_todos_by_content, TW_TZ
 
 _CN_NUM = {
-    '零': 0, '一': 1, '二': 2, '三': 3, '四': 4,
+    '零': 0, '一': 1, '二': 2, '兩': 2, '三': 3, '四': 4,
     '五': 5, '六': 6, '七': 7, '八': 8, '九': 9,
     '十': 10,
 }
@@ -31,7 +31,7 @@ def _extract_time(content: str) -> str | None:
     """Extract HH:MM from Chinese time expression in content string."""
     m = re.search(
         r'(今晚|今天晚上|晚上|早上|上午|下午|中午|凌晨|傍晚)'
-        r'([零一二三四五六七八九十\d]+)點'
+        r'([零一兩二三四五六七八九十\d]+)點'
         r'(半|([零一二三四五六七八九十\d]+)分?)?',
         content
     )
@@ -83,7 +83,7 @@ def _parse_reminder_date(s: str) -> str | None:
     return None
 
 
-_TIME_EXPR = r'(?:今晚|今天晚上|晚上|早上|上午|下午|中午|凌晨|傍晚)(?:\d+|[零一二三四五六七八九十百]+)點\S*'
+_TIME_EXPR = r'(?:今晚|今天晚上|晚上|早上|上午|下午|中午|凌晨|傍晚)(?:\d+|[零一兩二三四五六七八九十百]+)點\S*'
 
 
 def _extract_reminder(text: str) -> tuple | None:
@@ -157,11 +157,42 @@ def handle_view_todos() -> str:
     return "\n".join(lines)
 
 
+def _fmt_todo_list(todos: list[dict]) -> str:
+    lines = ["找到多筆待辦，請輸入編號操作："]
+    for i, t in enumerate(todos, 1):
+        date_display = t["date"][5:].replace("-", "/")
+        time_note = f"（{t['time']}）" if t.get("time") else ""
+        lines.append(f"  {i}. {t['member']}｜{date_display} {t['content']}{time_note}")
+    lines.append("\n例：完成待辦 1  或  取消待辦 2")
+    return "\n".join(lines)
+
+
 def handle_complete_todo(member: str, text: str) -> str | None:
     content = re.sub(r'^完成待辦\s*', '', text).strip()
     if not content:
         return "請加上要完成的待辦內容！\n例：完成待辦 站起來走走"
+
+    # Check if user is selecting by number from previous multi-match
+    if content.isdigit():
+        key = f"todo_select:{member}:complete"
+        items = kv_get(key)
+        if items:
+            idx = int(content) - 1
+            if 0 <= idx < len(items):
+                try:
+                    from sheets import _update_cell
+                    _update_cell("待辦", f"E{items[idx]['row']}", "已完成")
+                    kv_delete(key)
+                    return f"✅ 完成！「{items[idx]['content']}」從待辦清單移除 🎉"
+                except Exception:
+                    pass
+            kv_delete(key)
+            return "編號錯誤或已過期，請重新搜尋"
+
     result = complete_todo_by_content(member, content)
+    if result and result.get("multiple"):
+        kv_set(f"todo_select:{member}:complete", result["items"], ttl_seconds=300)
+        return _fmt_todo_list(result["items"])
     if result:
         return f"✅ 完成！「{result['content']}」從待辦清單移除 🎉"
     return f"找不到「{content}」在你的待辦裡"
@@ -171,7 +202,54 @@ def handle_cancel_todo(member: str, text: str) -> str | None:
     content = re.sub(r'^取消待辦\s*', '', text).strip()
     if not content:
         return "請加上要取消的待辦內容！\n例：取消待辦 站起來走走"
+
+    # Check if user is selecting by number from previous multi-match
+    if content.isdigit():
+        key = f"todo_select:{member}:cancel"
+        items = kv_get(key)
+        if items:
+            idx = int(content) - 1
+            if 0 <= idx < len(items):
+                try:
+                    from sheets import _get_service, _get_sheet_id
+                    svc = _get_service()
+                    sid = _get_sheet_id()
+                    meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
+                    sheet_id = None
+                    for s in meta.get("sheets", []):
+                        if s["properties"]["title"] == "待辦":
+                            sheet_id = s["properties"]["sheetId"]
+                            break
+                    if sheet_id is not None:
+                        row_index = items[idx]["row"] - 1
+                        svc.spreadsheets().batchUpdate(
+                            spreadsheetId=sid,
+                            body={
+                                "requests": [
+                                    {
+                                        "deleteDimension": {
+                                            "range": {
+                                                "sheetId": sheet_id,
+                                                "dimension": "ROWS",
+                                                "startIndex": row_index,
+                                                "endIndex": row_index + 1,
+                                            }
+                                        }
+                                    }
+                                ]
+                            },
+                        ).execute()
+                        kv_delete(key)
+                        return f"🗑️ 已取消！「{items[idx]['content']}」從待辦清單刪除"
+                except Exception:
+                    pass
+            kv_delete(key)
+            return "編號錯誤或已過期，請重新搜尋"
+
     result = delete_todo_by_content(member, content)
+    if result and result.get("multiple"):
+        kv_set(f"todo_select:{member}:cancel", result["items"], ttl_seconds=300)
+        return _fmt_todo_list(result["items"])
     if result:
         return f"🗑️ 已取消！「{result['content']}」從待辦清單刪除"
     return f"找不到「{content}」在你的待辦裡"
