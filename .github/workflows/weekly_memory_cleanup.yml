@@ -1,0 +1,25 @@
+name: Weekly Memory Cleanup & Summary
+
+on:
+  schedule:
+    - cron: '0 16 * * 1'  # 週一 00:00 CST (UTC+8, 週一 16:00 UTC)
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install google-auth google-auth-oauthlib google-api-python-client requests
+      - run: python scripts/weekly_memory_cleanup.py
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.FAMILY_LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_GROUP_ID: ${{ secrets.FAMILY_LINE_GROUP_ID }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          FAMILY_SHEET_ID: ${{ secrets.FAMILY_SHEET_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
