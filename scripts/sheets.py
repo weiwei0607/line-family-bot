@@ -923,7 +923,7 @@ def rename_latest_tidy_member(old_name: str, new_name: str) -> dict | None:
 
 def get_todos(only_pending=True) -> list[dict]:
     try:
-        rows = _read("待辦", "A2:F200")
+        rows = _read("待辦", "A2:H200")
     except Exception:
         return []
     items = []
@@ -932,12 +932,14 @@ def get_todos(only_pending=True) -> list[dict]:
             continue
         item = {
             "row": i + 2,
-            "timestamp": r[0].strip() if len(r) > 0 else "",
-            "date": r[1].strip() if len(r) > 1 else "",
-            "member": r[2].strip() if len(r) > 2 else "",
-            "content": r[3].strip() if len(r) > 3 else "",
-            "status": r[4].strip() if len(r) > 4 else "待辦",
-            "created_by": r[5].strip() if len(r) > 5 else "",
+            "timestamp":     r[0].strip() if len(r) > 0 else "",
+            "date":          r[1].strip() if len(r) > 1 else "",
+            "member":        r[2].strip() if len(r) > 2 else "",
+            "content":       r[3].strip() if len(r) > 3 else "",
+            "status":        r[4].strip() if len(r) > 4 else "待辦",
+            "created_by":    r[5].strip() if len(r) > 5 else "",
+            "time":          r[6].strip() if len(r) > 6 else "",
+            "reminded_count": int(r[7]) if len(r) > 7 and str(r[7]).strip().isdigit() else 0,
         }
         if only_pending and item["status"] == "已完成":
             continue
@@ -945,14 +947,21 @@ def get_todos(only_pending=True) -> list[dict]:
     return items
 
 
-def add_todo(member: str, date_str: str, content: str, created_by: str) -> bool:
+def add_todo(member: str, date_str: str, content: str, created_by: str,
+             time_str: str = "") -> bool:
     try:
         _ensure_tab("待辦")
-        _append("待辦", [_now_str(), date_str, member, content, "待辦", created_by])
+        _append("待辦", [_now_str(), date_str, member, content, "待辦", created_by,
+                         time_str, 0])
         return True
     except Exception as e:
         logger.warning("add_todo failed: %s", e)
         return False
+
+
+def update_todo_reminder(row: int, reminded_count: int):
+    """更新待辦的提醒次數（column H）。"""
+    _update_cell("待辦", f"H{row}", reminded_count)
 
 
 def complete_todo_by_content(member: str, content: str) -> dict | None:

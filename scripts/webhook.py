@@ -379,49 +379,55 @@ def webhook():
 
 def _process_text_message(reply_token: str, text: str, source, member: str = "") -> bool:
     """處理文字訊息的核心邏輯（文字/語音轉文字共用）。回傳 True 表示已由指令處理。"""
-    # ── 待辦提醒 ──
-    from handlers.todos import handle_add_todo, handle_view_todos, handle_complete_todo
-    if text.startswith("提醒"):
-        reply(reply_token, handle_add_todo(member, text))
-        return True
-    if text in ["待辦清單", "待辦", "我的待辦"]:
-        reply(reply_token, handle_view_todos())
-        return True
-    if text.startswith("完成待辦"):
-        result = handle_complete_todo(member, text)
-        if result:
-            reply(reply_token, result)
+    try:
+        # ── 待辦提醒 ──
+        from handlers.todos import handle_add_todo, handle_view_todos, handle_complete_todo
+        if text.startswith("提醒"):
+            reply(reply_token, handle_add_todo(member, text))
+            return True
+        if text in ["待辦清單", "待辦", "我的待辦"]:
+            reply(reply_token, handle_view_todos())
+            return True
+        if text.startswith("完成待辦"):
+            result = handle_complete_todo(member, text)
+            if result:
+                reply(reply_token, result)
+                return True
+
+        if (
+            handle_admin(reply_token, source, text) or
+            handle_batch_log(reply_token, member, text) or
+            handle_help(reply_token, text) or
+            handle_chores(reply_token, member, text) or
+            handle_points(reply_token, member, text) or
+            handle_shopping(reply_token, member, text) or
+            handle_accounting(reply_token, member, text) or
+            handle_fine(reply_token, member, text) or
+            handle_declutter(reply_token, member, text) or
+            handle_fun(reply_token, source, text, member) or
+            handle_ai_mention(reply_token, text, member)
+        ):
             return True
 
-    if (
-        handle_admin(reply_token, source, text) or
-        handle_batch_log(reply_token, member, text) or
-        handle_help(reply_token, text) or
-        handle_chores(reply_token, member, text) or
-        handle_points(reply_token, member, text) or
-        handle_shopping(reply_token, member, text) or
-        handle_accounting(reply_token, member, text) or
-        handle_fine(reply_token, member, text) or
-        handle_declutter(reply_token, member, text) or
-        handle_fun(reply_token, source, text, member) or
-        handle_ai_mention(reply_token, text, member)
-    ):
-        return True
+        # 拼字容錯：短指令找最接近的
+        _KNOWN_COMMANDS = [
+            "家事清單", "點數", "我的點數", "購物清單", "帳目", "欠款",
+            "天氣", "今天吃什麼", "星座", "今日全員運勢", "笑話", "冷知識",
+            "今日宇宙", "推薦電影", "新聞", "今日新聞", "金價", "激勵名言",
+            "今日日文單字", "今日西文單字", "今日漢字", "說明", "指令清單",
+            "今天做什麼", "今天運動", "動漫名言", "出題", "翻譯",
+            "待辦清單", "我的待辦", "完成待辦",
+        ]
+        if len(text) <= 8 and not re.search(r"[a-zA-Z0-9]", text):
+            close = difflib.get_close_matches(text, _KNOWN_COMMANDS, n=1, cutoff=0.6)
+            if close:
+                reply(reply_token, f"你是想說「{close[0]}」嗎？試試傳那個指令 😊")
+                return True
 
-    # 拼字容錯：短指令找最接近的
-    _KNOWN_COMMANDS = [
-        "家事清單", "點數", "我的點數", "購物清單", "帳目", "欠款",
-        "天氣", "今天吃什麼", "星座", "今日全員運勢", "笑話", "冷知識",
-        "今日宇宙", "推薦電影", "新聞", "今日新聞", "金價", "激勵名言",
-        "今日日文單字", "今日西文單字", "今日漢字", "說明", "指令清單",
-        "今天做什麼", "今天運動", "動漫名言", "出題", "翻譯",
-        "待辦清單", "我的待辦", "完成待辦",
-    ]
-    if len(text) <= 8 and not re.search(r"[a-zA-Z0-9]", text):
-        close = difflib.get_close_matches(text, _KNOWN_COMMANDS, n=1, cutoff=0.6)
-        if close:
-            reply(reply_token, f"你是想說「{close[0]}」嗎？試試傳那個指令 😊")
-            return True
+    except Exception as exc:
+        logger.exception("_process_text_message error: %s", exc)
+        reply(reply_token, f"❌ 指令處理時出錯：{type(exc).__name__}，請稍後再試或通知管理員 😢")
+        return True
 
     return False
 

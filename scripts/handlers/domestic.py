@@ -20,22 +20,36 @@ def handle_chores(reply_token: str, member: str, text: str) -> bool:
     """處理家事相關指令"""
     m = re.match(r"^(完成|做了|做好了|完成了)\s*(.+)", text)
     if m:
-        chore_name = m.group(2).strip()
-        result = complete_chore(chore_name, member or "不知道誰")
-        if result and result.get("capped"):
+        raw = m.group(2).strip()
+        chore_names = [n for n in re.split(r'[\s、，,]+', raw) if n]
+        who = member or "不知道誰"
+        successes, capped_list, not_found = [], [], []
+
+        for chore_name in chore_names:
+            result = complete_chore(chore_name, who)
+            if result and result.get("capped"):
+                capped_list.append(result["name"])
+            elif result:
+                pts_str = f"{result['points']:.2f}".rstrip('0').rstrip('.')
+                log_chore_points(who, result["name"], result["points"])
+                successes.append((result["name"], pts_str))
+            else:
+                not_found.append(chore_name)
+
+        if not successes and not capped_list:
             reply(reply_token,
-                  f"⚠️ {member or '你'} 本週「{result['name']}」已達上限 {result['cap']} 點，不再計分喔！")
-        elif result:
-            pts = result["points"]
-            pts_str = f"{pts:.2f}".rstrip('0').rstrip('.')
-            log_chore_points(member or "不知道誰", result["name"], pts)
-            summary = format_weekly_summary()
-            reply(reply_token,
-                  f"✅ {member or '你'} 完成了「{result['name']}」！獲得 {pts_str} 點 🎉\n\n{summary}")
-        else:
-            reply(reply_token,
-                  f"找不到「{chore_name}」這個家事耶，確認一下名稱是否正確？\n"
+                  f"找不到「{raw}」這個家事耶，確認一下名稱是否正確？\n"
                   f"輸入「家事清單」看看所有家事")
+        else:
+            lines = []
+            for name, pts_str in successes:
+                lines.append(f"✅ {member or '你'} 完成了「{name}」！獲得 {pts_str} 點 🎉")
+            for name in capped_list:
+                lines.append(f"⚠️ 「{name}」本週已達上限，不再計分")
+            for name in not_found:
+                lines.append(f"❓ 找不到「{name}」")
+            lines.append(f"\n{format_weekly_summary()}")
+            reply(reply_token, "\n".join(lines))
         return True
 
     if text in ["家事清單", "家事", "待完成", "還有什麼家事"]:
