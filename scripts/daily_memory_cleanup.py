@@ -238,9 +238,30 @@ def main():
     # 4. 生成本週對話摘要
     summary = _get_gemini_summary(meaningful)
 
-    # 5. 靜默執行：不發任何群組訊息，摘要只留 log
+    # 5. 每週一把 AI 摘要寫入 Sheets「每週摘要」tab
     if is_monday:
-        logger.info("Weekly summary:\n%s", summary)
+        try:
+            from sheets import _get_service, _get_sheet_id
+            svc = _get_service()
+            sid = _get_sheet_id()
+            # 確保 tab 存在
+            sheet_metadata = svc.spreadsheets().get(spreadsheetId=sid).execute()
+            tabs = [s['properties']['title'] for s in sheet_metadata.get('sheets', [])]
+            if "每週摘要" not in tabs:
+                svc.spreadsheets().batchUpdate(
+                    spreadsheetId=sid,
+                    body={"requests": [{"addSheet": {"properties": {"title": "每週摘要"}}}]},
+                ).execute()
+            week_label = today.strftime("%Y-%m-%d")
+            svc.spreadsheets().values().append(
+                spreadsheetId=sid,
+                range="每週摘要!A1",
+                valueInputOption="USER_ENTERED",
+                body={"values": [[week_label, summary]]},
+            ).execute()
+            logger.info("Weekly summary saved to Sheets: %s", week_label)
+        except Exception as exc:
+            logger.warning("Save weekly summary to Sheets failed: %s", exc)
     logger.info("Daily cleanup done. noise=%d meaningful=%d", noise_count, len(meaningful))
 
 
