@@ -11,7 +11,6 @@ import json
 import logging
 from datetime import datetime, timezone, timedelta
 from sheets import _read, _append, _get_service, _get_sheet_id
-from line_push import push_text_to_group
 
 logger = logging.getLogger(__name__)
 TW_TZ = timezone(timedelta(hours=8))
@@ -239,17 +238,10 @@ def main():
     # 4. 生成本週對話摘要
     summary = _get_gemini_summary(meaningful)
 
-    # 5. 發送到群組（每週一發 AI 摘要，其他日子只發清理報告）
+    # 5. 靜默執行：不發任何群組訊息，摘要只留 log
     if is_monday:
-        msg = (
-            f"🧹 本週對話紀錄清理完成！\n"
-            f"刪除了 {noise_count} 條指令噪音，保留 {len(meaningful)} 條有意義的對話。\n\n"
-            f"📌 本週亮點：\n{summary}"
-        )
-    else:
-        msg = f"🧹 每日對話清理：刪除 {noise_count} 條噪音，保留 {len(meaningful)} 條。"
-    push_text_to_group(msg)
-    logger.info("Daily memory cleanup sent. is_monday=%s", is_monday)
+        logger.info("Weekly summary:\n%s", summary)
+    logger.info("Daily cleanup done. noise=%d meaningful=%d", noise_count, len(meaningful))
 
 
 if __name__ == "__main__":
