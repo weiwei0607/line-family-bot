@@ -304,7 +304,7 @@ def webhook():
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
-        abort(400)
+        return "Invalid signature", 400
     return "OK"
 
 def _process_text_message(reply_token: str, text: str, source, member: str = ""):
@@ -462,6 +462,9 @@ from utils import send_telegram_alert, rate_limit_check
 
 @app.errorhandler(Exception)
 def _handle_error(e):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e  # let Flask handle abort() normally
     import traceback
     err_msg = f"家管助理異常：{type(e).__name__}\n{str(e)[:200]}"
     logging.error("Unhandled exception: %s", err_msg)
