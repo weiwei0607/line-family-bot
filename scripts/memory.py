@@ -19,6 +19,7 @@ _BUFFER_SIZE = 60
 _CONTEXT_SIZE = 20   # 給 AI 的最近幾條
 _MAX_MSG_LEN  = 300  # 存 Sheets 時截斷超長訊息
 _EPHEMERAL_TTL_HOURS = 2  # 短暫記憶保留時間
+_SHEETS_MAX_ROWS = 500   # Sheets 最多保留幾條對話紀錄
 
 _buffer: deque = deque(maxlen=_BUFFER_SIZE)
 _lock = threading.Lock()
@@ -90,7 +91,11 @@ def load_from_sheets(n: int = _BUFFER_SIZE):
     try:
         from sheets import _read, _ensure_tab
         _ensure_tab(_TAB)
-        rows = _read(_TAB, "A2:C3000")
+        rows = _read(_TAB, "A2:C5000")
+        total = len(rows)
+        if total > _SHEETS_MAX_ROWS:
+            _prune_sheets(rows)
+            rows = rows[-_SHEETS_MAX_ROWS:]
         rows = rows[-n:]
         with _lock:
             _buffer.clear()
@@ -98,6 +103,28 @@ def load_from_sheets(n: int = _BUFFER_SIZE):
                 if len(r) >= 3:
                     _buffer.append({"ts": r[0], "speaker": r[1], "message": r[2]})
         _loaded = True
-        logger.info("memory: loaded %d rows from Sheets", len(rows))
+        logger.info("memory: loaded %d rows from Sheets (total was %d)", len(rows), total)
     except Exception as exc:
         logger.warning("memory.load_from_sheets failed: %s", exc)
+
+
+def _prune_sheets(all_rows: list):
+    """把 Sheets「對話紀錄」tab 修剪到最新 _SHEETS_MAX_ROWS 行。"""
+    try:
+        from sheets import _get_service, _get_sheet_id
+        keep = all_rows[-_SHEETS_MAX_ROWS:]
+        svc = _get_service()
+        sid = _get_sheet_id()
+        svc.spreadsheets().values().clear(
+            spreadsheetId=sid, range=f"{_TAB}!A2:C50000"
+        ).execute()
+        if keep:
+            svc.spreadsheets().values().update(
+                spreadsheetId=sid,
+                range=f"{_TAB}!A2",
+                valueInputOption="USER_ENTERED",
+                body={"values": keep},
+            ).execute()
+        logger.info("memory: pruned Sheets to %d rows", len(keep))
+    except Exception as exc:
+        logger.warning("memory._prune_sheets failed: %s", exc)
