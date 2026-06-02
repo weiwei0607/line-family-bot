@@ -10,6 +10,7 @@ import threading
 import hmac
 import hashlib
 import base64
+from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 import re
@@ -487,8 +488,8 @@ def webhook():
         return "OK", 200
 
     # Return 200 immediately so LINE doesn't time out (reply token = 30s)
-    # Process events in background thread
-    threading.Thread(target=_dispatch_webhook, args=(body, signature), daemon=True).start()
+    # Process in bounded thread pool (max 8 workers) to prevent memory blow-up
+    _webhook_pool.submit(_dispatch_webhook, body, signature)
     return "OK"
 
 def _process_text_message(reply_token: str, text: str, source, member: str = "") -> bool:
@@ -660,6 +661,7 @@ def handle_audio_message(event: MessageEvent):
         try:
             import base64
             audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+            del audio_bytes  # free raw bytes; base64 copy is already made
             url = (
                 "https://generativelanguage.googleapis.com/v1beta/"
                 f"models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
@@ -702,6 +704,8 @@ def handle_audio_message(event: MessageEvent):
 
 
 from utils import send_telegram_alert, rate_limit_check
+
+_webhook_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="wh")
 
 @app.errorhandler(Exception)
 def _handle_error(e):
