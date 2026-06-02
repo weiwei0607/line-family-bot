@@ -25,6 +25,13 @@ def rate_limit_check(user_id: str, max_requests: int = 30, window_seconds: int =
         return True
     now = time.time()
     with _rate_limit_lock:
+        # Evict stale entries every ~100 calls to prevent unbounded growth
+        if len(_rate_limit_buckets) > 200:
+            stale = [k for k, (_, ws) in _rate_limit_buckets.items()
+                     if now - ws > window_seconds * 2]
+            for k in stale:
+                del _rate_limit_buckets[k]
+
         count, window_start = _rate_limit_buckets.get(user_id, (0, now))
         if now - window_start > window_seconds:
             _rate_limit_buckets[user_id] = (1, now)

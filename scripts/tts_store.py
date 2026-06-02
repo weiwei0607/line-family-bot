@@ -322,5 +322,9 @@ def webhook_cleanup(ttl_seconds: int = 600) -> None:
         with _write_lock, _transaction() as cur:
             cutoff = (datetime.now() - timedelta(seconds=ttl_seconds)).isoformat()
             cur.execute(f"DELETE FROM webhook_dedup WHERE created_at <= {PH}", (cutoff,))
+        # Reclaim SQLite space (skip for PostgreSQL)
+        if not USE_PG:
+            with _transaction() as cur:
+                cur.execute("PRAGMA incremental_vacuum(50)")
     except Exception as exc:
         _logger.warning("webhook_cleanup error: %s", exc)

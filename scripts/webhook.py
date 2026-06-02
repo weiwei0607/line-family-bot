@@ -20,7 +20,7 @@ from flask import Flask, request, abort, g
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import Configuration
-from linebot.v3.webhooks import MessageEvent, TextMessageContent, AudioMessageContent
+from linebot.v3.webhooks import MessageEvent, TextMessageContent, AudioMessageContent, ImageMessageContent
 from line_push import (
     reply_text as reply,
     push_messages,
@@ -204,25 +204,47 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
     return False
 
 
+_IS_XIAOHUA = re.compile(r"^@?小花\s*(.+)", re.IGNORECASE)
+_IS_BOT     = re.compile(r"^@?(?:機器人|家管|bot|助理)\s*(.+)", re.IGNORECASE)
+
 def handle_ai_mention(reply_token: str, text: str, member: str = ""):
-    """@機器人 問問題（純文字觸發，非 LINE 正式 mention）"""
-    m = re.match(r"^@?(?:機器人|家管|bot|助理|小花)\s*(.+)", text, re.IGNORECASE)
-    if m:
-        question = m.group(1).strip()
-        _memory.record(member or "家人", question)  # 記錄使用者的問題
-        if handle_fun(reply_token, None, question):
-            return True
-        ctx = _memory.format_for_ai()
-        prompt = (
-            "你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。"
-            + (f"\n\n{ctx}" if ctx else "")
-            + f"\n\n問題：{question}"
-        )
-        answer = call_ai(prompt)
-        _memory.record("機器人", answer)
-        reply(reply_token, answer)
+    """@小花 / @機器人 問問題（純文字觸發，非 LINE 正式 mention）"""
+    m_xh = _IS_XIAOHUA.match(text)
+    m_bot = _IS_BOT.match(text)
+    m = m_xh or m_bot
+    if not m:
+        return False
+
+    question = m.group(1).strip()
+    _memory.record(member or "家人", question)
+    if handle_fun(reply_token, None, question):
         return True
-    return False
+
+    ctx = _memory.format_for_ai()
+    img_desc = ""
+    if m_xh and any(k in question for k in ["圖", "看", "照片", "拍"]):
+        group_id = getattr(_memory._ctx, "group_id", "default")
+        img_desc = _analyze_group_images(group_id)
+
+    if m_xh:
+        persona = (
+            "你叫小花，是這個家的 AI 助手，個性溫柔但偶爾小毒舌，會用可愛的語氣說話。"
+            "你喜歡加 emoji 但不過分。你記得這個家發生過的事。"
+            "用繁體中文回答，簡短有趣。"
+        )
+    else:
+        persona = "你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。"
+
+    prompt = (
+        persona
+        + (f"\n\n{ctx}" if ctx else "")
+        + (f"\n\n{img_desc}" if img_desc else "")
+        + f"\n\n{member or '家人'}：{question}"
+    )
+    answer = call_ai(prompt)
+    _memory.record("小花" if m_xh else "機器人", answer)
+    reply(reply_token, answer)
+    return True
 
 
 
@@ -645,11 +667,21 @@ def handle_audio_message(event: MessageEvent):
         reply(reply_token, "🎤 語音來源不合法")
         return
 
-    # 下載音檔
+    # 下載音檔（限制 6MB，避免大檔案炸記憶體）
+    _AUDIO_MAX_BYTES = 6 * 1024 * 1024
     try:
-        r = requests.get(audio_url, timeout=15, allow_redirects=False)
+        r = requests.get(audio_url, timeout=15, allow_redirects=False, stream=True)
         r.raise_for_status()
-        audio_bytes = r.content
+        chunks = []
+        total = 0
+        for chunk in r.iter_content(65536):
+            total += len(chunk)
+            if total > _AUDIO_MAX_BYTES:
+                reply(reply_token, "🎤 語音太長了，請傳短一點（6MB 以內）")
+                return
+            chunks.append(chunk)
+        audio_bytes = b"".join(chunks)
+        del chunks
     except Exception as e:
         reply(reply_token, f"🎤 語音下載失敗：{e}")
         return
@@ -703,6 +735,75 @@ def handle_audio_message(event: MessageEvent):
     push_messages(group_id, [{"type": "text", "text": heard_msg}])
 
     _process_text_message(reply_token, transcript, event.source, member)
+
+
+# ── 圖片訊息處理（只記錄 message ID，不自動分析，省錢）────────────────
+
+_IMAGE_MAX_BYTES = 4 * 1024 * 1024  # 4MB limit for on-demand analysis
+
+
+@handler.add(MessageEvent, message=ImageMessageContent)
+def handle_image_message(event: MessageEvent):
+    """收到圖片時只把 message_id 存到 kv store，不主動呼叫 Gemini（省錢）。
+    小花被呼叫且問題包含「圖」「看」時才分析。"""
+    user_id = getattr(event.source, "user_id", "")
+    member = resolve_member(user_id) if user_id else "家人"
+    group_id = (
+        getattr(event.source, "group_id", None)
+        or getattr(event.source, "room_id", None)
+        or f"dm_{user_id}"
+    )
+    _memory.set_context(group_id)
+    # 存最近 3 張圖片的 message_id（TTL 6小時，LINE 媒體有效期內）
+    from tts_store import kv_get, kv_set
+    recent = kv_get(f"imgs:{group_id}", []) or []
+    recent = ([{"id": event.message.id, "member": member}] + recent)[:3]
+    kv_set(f"imgs:{group_id}", recent, ttl_seconds=21600)
+    # 記入文字記憶（讓小花知道有圖被傳進來）
+    _memory.record_ephemeral(member, "[傳了一張圖片]")
+
+
+def _analyze_group_images(group_id: str) -> str:
+    """拿最近存的圖片 ID → Gemini Vision 分析 → 回傳描述文字。限一次最多 1 張（省錢）。"""
+    if not GEMINI_KEY:
+        return ""
+    from tts_store import kv_get
+    recent = kv_get(f"imgs:{group_id}", []) or []
+    if not recent:
+        return ""
+    img_info = recent[0]  # 最新一張
+    try:
+        img_resp = requests.get(
+            f"https://api-data.line.me/v2/bot/message/{img_info['id']}/content",
+            headers={"Authorization": f"Bearer {_token}"},
+            timeout=15,
+            stream=True,
+        )
+        img_resp.raise_for_status()
+        chunks, total = [], 0
+        for chunk in img_resp.iter_content(65536):
+            total += len(chunk)
+            if total > _IMAGE_MAX_BYTES:
+                return ""
+            chunks.append(chunk)
+        image_bytes = b"".join(chunks)
+        del chunks
+        img_b64 = base64.b64encode(image_bytes).decode()
+        del image_bytes
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/"
+            f"models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
+        )
+        payload = {"contents": [{"parts": [
+            {"text": "請用繁體中文描述這張圖片的內容（50字以內），直接描述重點。"},
+            {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}},
+        ]}]}
+        resp = requests.post(url, json=payload, timeout=20)
+        del img_b64
+        desc = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return f"（{img_info.get('member', '家人')} 剛傳的圖：{desc}）"
+    except Exception:
+        return ""
 
 
 from utils import send_telegram_alert, rate_limit_check
