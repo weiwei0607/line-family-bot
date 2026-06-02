@@ -78,7 +78,7 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
         return True
 
     m_tidy = re.match(r"^(收拾|整理)\s*(.+)", text, re.DOTALL)
-    if m_tidy:
+    if m_tidy and m_tidy.group(2).strip() not in ["狀態", "紀錄", "多久", "狀況", "提醒"]:
         raw_content = m_tidy.group(2).strip()
 
         # 優先使用已解析的 member（限定有效成員），沒有再嘗試抓 LINE profile
