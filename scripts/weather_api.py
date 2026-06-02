@@ -1,5 +1,6 @@
 """Weather Api for line-family-bot."""
 
+import re
 import requests
 from datetime import datetime, timedelta
 import logging
