@@ -31,7 +31,7 @@ SCHEDULE = {
     "clean_dustbin":  {"days": 7,   "label": "洗集塵盒",       "icon": "🗑️",  "category": "小白"},
     "clean_brush":    {"days": 14,  "label": "清理主刷",       "icon": "🌀",  "category": "小白"},
     "replace_brush":  {"days": 180, "label": "換主刷",         "icon": "🔄",  "category": "小白"},
-    "replace_filter": {"days": 90,  "label": "換濾網",         "icon": "🫁",  "category": "小白"},
+    "replace_filter": {"days": 30,  "label": "換濾網",         "icon": "🫁",  "category": "小白"},
     # 家務
     "recycle":        {"days": 7,   "label": "資源回收",       "icon": "♻️",  "category": "家務"},
     "clean_public":   {"days": 3,   "label": "公共區域清理",   "icon": "🧹",  "category": "家務"},
