@@ -6,6 +6,7 @@ Also detects vacuum-robot maintenance keywords and logs them simultaneously.
 
 import os
 import re
+import sys
 import logging
 from linebot.v3.messaging import ApiClient, MessagingApi
 from sheets import add_tidy_log, format_tidy_summary, _detect_area
@@ -13,17 +14,13 @@ from line_push import reply_text as reply
 
 logger = logging.getLogger(__name__)
 
-# 引用小白模組的關鍵字（避免重複定義）
+# 從 vacuum_tracker 動態取得小白關鍵字，避免維護兩份
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from vacuum_tracker import KEYWORDS as _VT_KEYWORDS, SCHEDULE as _VT_SCHEDULE
 _VACUUM_KEYWORDS = {
-    "empty_dustbin":  ["倒集塵盒", "倒垃圾", "清集塵盒"],
-    "clean_dustbin":  ["洗集塵盒", "洗塵盒",
-                       "集塵盒清洗", "集塵盒清理", "塵盒清洗", "集塵盒清"],
-    "clean_brush":    ["清理主刷", "清主刷", "洗主刷", "清理滾刷", "清滾刷",
-                       "主刷清理", "滾刷清理", "主刷清洗", "滾刷清洗"],
-    "replace_brush":  ["換主刷", "換滾刷", "主刷換新", "換新主刷",
-                       "主刷更換", "滾刷更換"],
-    "replace_filter": ["換濾網", "濾網換新", "換新濾網", "換hepa", "換HEPA",
-                       "濾網更換", "HEPA更換", "hepa更換"],
+    action: kws
+    for action, kws in _VT_KEYWORDS.items()
+    if _VT_SCHEDULE.get(action, {}).get("category") == "小白"
 }
 
 
@@ -42,13 +39,10 @@ def _match_vacuum_actions(line: str) -> list[str]:
 def _get_vacuum_reminders() -> str:
     """取得小白超期提醒簡訊，沒有則回傳空字串"""
     try:
-        import sys
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from vacuum_tracker import _load_records, _days_since, SCHEDULE
-
+        from vacuum_tracker import _load_records, _days_since
         records = _load_records()
         alerts = []
-        for action, s in SCHEDULE.items():
+        for action, s in _VT_SCHEDULE.items():
             relevant = [r for r in records if r["action"] == action]
             if relevant:
                 latest = max(relevant, key=lambda r: r["timestamp"])
@@ -105,8 +99,6 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
                 # ── 記到小白維護紀錄（一行可能有多個動作）──
                 for action in actions:
                     try:
-                        import sys
-                        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                         from vacuum_tracker import add_record as vac_add
                         labels = vac_add(action, user=member or "家人", note="")
                         vacuum_records.extend(labels)
