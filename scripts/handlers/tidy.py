@@ -26,14 +26,40 @@ _VACUUM_KEYWORDS = {
 }
 
 
-def _is_vacuum_line(line: str) -> tuple[bool, str]:
-    """判斷一行文字是否為小白維護指令。回傳 (是否匹配, action)"""
+def _match_vacuum_actions(line: str) -> list[str]:
+    """掃描一行文字裡所有小白維護關鍵字，回傳 action 列表（可複數）"""
     t = line.replace(" ", "").replace("　", "")
+    matched = []
     for action, keywords in _VACUUM_KEYWORDS.items():
         for kw in keywords:
             if kw in t:
-                return True, action
-    return False, ""
+                matched.append(action)
+                break  # 該 action 已命中，下一個 action
+    return matched
+
+
+def _get_vacuum_reminders() -> str:
+    """取得小白超期提醒簡訊，沒有則回傳空字串"""
+    try:
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from vacuum_tracker import _load, _days_since, SCHEDULE
+
+        data = _load()
+        records = data.get("records", [])
+        alerts = []
+        for action, s in SCHEDULE.items():
+            relevant = [r for r in records if r["action"] == action]
+            if relevant:
+                latest = max(relevant, key=lambda r: r["timestamp"])
+                days = _days_since(latest["timestamp"])
+                if days > s["days"]:
+                    alerts.append(f"{s['icon']} {s['label']} 已過 {days} 天（建議每{s['days']}天）")
+        if alerts:
+            return "\n".join(alerts)
+    except Exception as exc:
+        logger.exception("get_vacuum_reminders failed: %s", exc)
+    return ""
 
 
 def _handle_tidy(reply_token: str, text: str, member: str, source, configuration) -> bool:
@@ -73,20 +99,21 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
         errors = []
 
         for line in lines:
-            is_vacuum, action = _is_vacuum_line(line)
+            actions = _match_vacuum_actions(line)
 
-            if is_vacuum:
-                # ── 記到小白維護紀錄 ──
-                try:
-                    import sys
-                    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                    from vacuum_tracker import add_record as vac_add, SCHEDULE
-                    vac_add(action, user=member or "家人", note="")
-                    s = SCHEDULE[action]
-                    vacuum_records.append(f"{s['icon']} {s['label']}")
-                except Exception as exc:
-                    logger.exception("vacuum add_record failed: %s", exc)
-                    errors.append(line)
+            if actions:
+                # ── 記到小白維護紀錄（一行可能有多個動作）──
+                for action in actions:
+                    try:
+                        import sys
+                        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                        from vacuum_tracker import add_record as vac_add, SCHEDULE
+                        vac_add(action, user=member or "家人", note="")
+                        s = SCHEDULE[action]
+                        vacuum_records.append(f"{s['icon']} {s['label']}")
+                    except Exception as exc:
+                        logger.exception("vacuum add_record failed: %s", exc)
+                        errors.append(line)
             else:
                 # ── 記到 Google Sheets 收拾紀錄 ──
                 area = _detect_area(line)
@@ -113,6 +140,11 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
             parts.append("🧹 家務紀錄\n" + "\n".join(tidy_records))
         if vacuum_records:
             parts.append("🤖 小白維護\n" + "\n".join(vacuum_records))
+
+        # 超期提醒
+        reminders = _get_vacuum_reminders()
+        if reminders:
+            parts.append("⚠️ 維護提醒\n" + reminders)
 
         if parts:
             header = f"✅ 已記錄 {len(tidy_records) + len(vacuum_records)} 項！\n\n"
