@@ -380,12 +380,29 @@ def _fallback_call(*callables: Callable):
 
 # ── TTS（edge-tts，免費 Microsoft 神經語音）──────────
 
-_EDGE_TTS_VOICE = {
-    "zh-TW": "zh-TW-HsiaoChenNeural",
-    "zh-CN": "zh-CN-XiaoxiaoNeural",
-    "en": "en-US-JennyNeural",
-    "ja": "ja-JP-NanamiNeural",
-    "ko": "ko-KR-SunHiNeural",
+_EDGE_TTS_VOICES = {
+    "zh-TW": [
+        "zh-TW-HsiaoChenNeural",   # 男，溫和沉穩
+        "zh-TW-HsiaoYuNeural",     # 女，溫柔自然
+        "zh-TW-YunJheNeural",      # 男，年輕活潑
+        "zh-CN-XiaoxiaoNeural",    # 女，活潑親切
+        "zh-CN-YunyangNeural",     # 男，新聞播報感
+        "zh-CN-XiaochenNeural",    # 女，知性優雅
+        "zh-CN-XiaohanNeural",     # 女
+        "zh-CN-XiaomengNeural",    # 女
+        "zh-CN-XiaomoNeural",      # 男
+        "zh-CN-XiaoqiuNeural",     # 男
+        "zh-CN-XiaoruiNeural",     # 女
+        "zh-CN-XiaoyanNeural",     # 女
+        "zh-CN-XiaozhenNeural",    # 女
+        "zh-HK-HiuMaanNeural",     # 女，粵語也懂繁體
+        "zh-HK-HiuGaaiNeural",     # 女
+        "zh-HK-WanLungNeural",     # 男
+    ],
+    "zh-CN": ["zh-CN-XiaoxiaoNeural", "zh-CN-YunyangNeural"],
+    "en": ["en-US-JennyNeural", "en-US-GuyNeural"],
+    "ja": ["ja-JP-NanamiNeural"],
+    "ko": ["ko-KR-SunHiNeural"],
 }
 
 def text_to_speech(text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
@@ -393,7 +410,8 @@ def text_to_speech(text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
         import asyncio
         import edge_tts
 
-        voice = _EDGE_TTS_VOICE.get(lang, "zh-TW-HsiaoChenNeural")
+        voices = _EDGE_TTS_VOICES.get(lang, ["zh-TW-HsiaoChenNeural"])
+        voice = random.choice(voices)
 
         async def _synth():
             communicate = edge_tts.Communicate(text[:500], voice)
