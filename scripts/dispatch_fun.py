@@ -145,9 +145,9 @@ def _cmd_anime_quote(reply):
 def _cmd_movie_quote(reply):
     q = get_movie_quote()
     if q and q.get("quote"):
-        reply(f"🎬 「{smart_translate(q['quote'])}」\n\n—《{q['movie']}》{q['character']}")
+        reply(f"🎬 「{q['quote']}」\n\n—《{q['movie']}》{q['character']}")
     else:
-        reply(call_ai("給我一句著名電影台詞，說出電影名稱，用繁體中文"))
+        reply(call_ai("給我一句著名電影的經典英文原句台詞，並標註電影中文名稱和角色名。格式：台詞（保留英文原句）\n—《電影中文名》角色名"))
 
 
 def _cmd_fun_fact(reply):
