@@ -373,50 +373,53 @@ def check_reminders():
 
     sent = 0
     for t in todos:
-        if t["date"] != today:
-            continue
-        time_str = t.get("time", "").strip()
-        reminded = t.get("reminded_count", 0)
-        member = t["member"]
-        content = t["content"]
-        created_by = t.get("created_by", "")
-        voice_content = content.replace("我", created_by) if created_by else content
+        try:
+            if t["date"] != today:
+                continue
+            time_str = t.get("time", "").strip()
+            reminded = t.get("reminded_count", 0)
+            member = t["member"]
+            content = t["content"]
+            created_by = t.get("created_by", "")
+            voice_content = content.replace("我", created_by) if created_by else content
 
-        if time_str:
-            # ── 有時間：奪命連環扣（最多 3 次）──
-            if reminded >= 3:
-                continue
-            try:
-                todo_hour, todo_min = int(time_str[:2]), int(time_str[3:5])
-            except (ValueError, IndexError):
-                continue
-            due = _dt(now.year, now.month, now.day, todo_hour, todo_min, tzinfo=TW_TZ)
-            # Skip if due time was more than 1 hour ago and never reminded (stale)
-            if reminded == 0 and now > due + _td(hours=1):
-                continue
-            trigger = due + _td(minutes=30 * reminded)
-            if now < trigger:
-                continue
+            if time_str:
+                # ── 有時間：奪命連環扣（最多 3 次）──
+                if reminded >= 3:
+                    continue
+                try:
+                    todo_hour, todo_min = int(time_str[:2]), int(time_str[3:5])
+                except (ValueError, IndexError):
+                    continue
+                due = _dt(now.year, now.month, now.day, todo_hour, todo_min, tzinfo=TW_TZ)
+                # Skip if due time was more than 1 hour ago and never reminded (stale)
+                if reminded == 0 and now > due + _td(hours=1):
+                    continue
+                trigger = due + _td(minutes=30 * reminded)
+                if now < trigger:
+                    continue
 
-            if reminded == 0:
-                msg = f"🔔 提醒時間到！\n📌 {member}：{content}\n\n完成後傳「完成待辦 {content[:10]}」，否則 30 分鐘後會繼續叫你 😤"
-                voice_text = f"提醒時間到！{member}，{voice_content}！"
+                if reminded == 0:
+                    msg = f"🔔 提醒時間到！\n📌 {member}：{content}\n\n完成後傳「完成待辦 {content[:10]}」，否則 30 分鐘後會繼續叫你 😤"
+                    voice_text = f"提醒時間到！{member}，{voice_content}！"
+                else:
+                    bells = "🔔" * (reminded + 1)
+                    remaining = 3 - reminded - 1
+                    suffix = f"（還差 {remaining} 次就放棄了）" if remaining > 0 else "（最後一次了，拜託快去做！）"
+                    msg = f"{bells} 還沒做喔！\n📌 {member}：{content}\n完成後傳「完成待辦 {content[:10]}」{suffix}"
+                    voice_text = f"{member}，{voice_content}還沒完成喔！快去做！"
+                _send_reminder(t, msg, voice_text, reminded + 1)
             else:
-                bells = "🔔" * (reminded + 1)
-                remaining = 3 - reminded - 1
-                suffix = f"（還差 {remaining} 次就放棄了）" if remaining > 0 else "（最後一次了，拜託快去做！）"
-                msg = f"{bells} 還沒做喔！\n📌 {member}：{content}\n完成後傳「完成待辦 {content[:10]}」{suffix}"
-                voice_text = f"{member}，{voice_content}還沒完成喔！快去做！"
-            _send_reminder(t, msg, voice_text, reminded + 1)
-        else:
-            # ── 沒時間：晚上 20:00 提醒一次（不連環扣）──
-            if reminded >= 1:
-                continue
-            if now.hour < 20:
-                continue
-            msg = f"🔔 今日待辦提醒！\n📌 {member}：{content}"
-            voice_text = f"今日待辦提醒！{member}，{voice_content}！"
-            _send_reminder(t, msg, voice_text, 1)
+                # ── 沒時間：晚上 20:00 提醒一次（不連環扣）──
+                if reminded >= 1:
+                    continue
+                if now.hour < 20:
+                    continue
+                msg = f"🔔 今日待辦提醒！\n📌 {member}：{content}"
+                voice_text = f"今日待辦提醒！{member}，{voice_content}！"
+                _send_reminder(t, msg, voice_text, 1)
+        except Exception as _e:
+            logger.warning("check_reminders: error processing todo row %s: %s", t.get("row"), _e)
 
     return f"sent {sent} reminders", 200
 
@@ -665,8 +668,9 @@ def handle_audio_message(event: MessageEvent):
     )
     _memory.set_context(group_id)
 
-    # 告訴使用者聽到了什麼
-    reply(reply_token, f"🎤 聽到：「{transcript[:80]}{'...' if len(transcript) > 80 else ''}」")
+    # 告訴使用者聽到了什麼（用 push 而非 reply，保留 reply_token 給指令回覆）
+    heard_msg = f"🎤 聽到：「{transcript[:80]}{'...' if len(transcript) > 80 else ''}」"
+    push_messages(group_id, [{"type": "text", "text": heard_msg}])
 
     _process_text_message(reply_token, transcript, event.source, member)
 
