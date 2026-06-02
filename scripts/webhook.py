@@ -461,7 +461,7 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
     """處理文字訊息的核心邏輯（文字/語音轉文字共用）。回傳 True 表示已由指令處理。"""
     try:
         # ── 待辦提醒 ──
-        from handlers.todos import handle_add_todo, handle_view_todos, handle_complete_todo
+        from handlers.todos import handle_add_todo, handle_view_todos, handle_complete_todo, handle_cancel_todo
         if text.startswith("提醒"):
             reply(reply_token, handle_add_todo(member, text))
             return True
