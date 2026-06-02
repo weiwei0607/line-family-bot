@@ -1,8 +1,8 @@
 """
 TTS audio + cron + dedup persistence for line-family-bot.
 Supports SQLite (local/dev) and PostgreSQL (Render production).
-from __future__ import annotations
 """
+from __future__ import annotations
 
 import contextlib
 import logging

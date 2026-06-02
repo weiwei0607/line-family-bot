@@ -1,0 +1,23 @@
+name: Keep Alive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping bots
+        run: |
+          echo "Pinging family bot…"
+          curl -sf "${FAMILY_URL}" -o /dev/null || echo "Family bot unreachable"
+          echo "Pinging group bot…"
+          curl -sf "${GROUP_URL}" -o /dev/null || echo "Group bot unreachable"
+          echo "Pinging tutoring bot…"
+          curl -sf "${TUTOR_URL}" -o /dev/null || echo "Tutoring bot unreachable"
+        env:
+          FAMILY_URL: ${{ vars.FAMILY_BOT_URL || 'https://line-family-bot.onrender.com/health' }}
+          GROUP_URL: ${{ vars.GROUP_BOT_URL || 'https://weiwei-line-bot.onrender.com/health' }}
+          TUTOR_URL: ${{ vars.TUTOR_BOT_URL || 'https://tutoring-bot.onrender.com/health' }}
