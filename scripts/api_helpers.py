@@ -384,17 +384,6 @@ _EDGE_TTS_VOICES = {
     "zh-TW": [
         "zh-TW-HsiaoChenNeural",   # 男，溫和沉穩
         "zh-TW-HsiaoYuNeural",     # 女，溫柔自然
-        "zh-TW-YunJheNeural",      # 男，年輕活潑
-        "zh-CN-XiaoxiaoNeural",    # 女，活潑親切
-        "zh-CN-YunyangNeural",     # 男，新聞播報感
-        "zh-CN-XiaochenNeural",    # 女，知性優雅
-        "zh-CN-XiaohanNeural",     # 女
-        "zh-CN-XiaomengNeural",    # 女
-        "zh-CN-XiaomoNeural",      # 男
-        "zh-CN-XiaoqiuNeural",     # 男
-        "zh-CN-XiaoruiNeural",     # 女
-        "zh-CN-XiaoyanNeural",     # 女
-        "zh-CN-XiaozhenNeural",    # 女
     ],
     "zh-CN": ["zh-CN-XiaoxiaoNeural", "zh-CN-YunyangNeural"],
     "en": ["en-US-JennyNeural", "en-US-GuyNeural"],
@@ -402,12 +391,24 @@ _EDGE_TTS_VOICES = {
     "ko": ["ko-KR-SunHiNeural"],
 }
 
+def _detect_lang(text: str) -> str:
+    """Simple heuristic language detection for TTS voice selection."""
+    if any("\u3040" <= c <= "\u309f" or "\u30a0" <= c <= "\u30ff" for c in text):
+        return "ja"
+    if any("\uac00" <= c <= "\ud7a3" for c in text):
+        return "ko"
+    if any("\u4e00" <= c <= "\u9fff" for c in text):
+        return "zh-TW"
+    return "en"
+
+
 def text_to_speech(text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
     try:
         import asyncio
         import edge_tts
 
-        voices = _EDGE_TTS_VOICES.get(lang, ["zh-TW-HsiaoChenNeural"])
+        detected = _detect_lang(text)
+        voices = _EDGE_TTS_VOICES.get(detected, ["zh-TW-HsiaoChenNeural"])
         voice = random.choice(voices)
 
         async def _synth():
@@ -420,12 +421,12 @@ def text_to_speech(text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
 
         audio_bytes = asyncio.run(_synth())
         if audio_bytes and len(audio_bytes) > 100:
-            logger.info("TTS success: voice=%s text_len=%d bytes=%d", voice, len(text), len(audio_bytes))
+            logger.info("TTS success: voice=%s detected=%s text_len=%d bytes=%d", voice, detected, len(text), len(audio_bytes))
             return audio_bytes, "audio/mpeg"
-        logger.warning("TTS empty audio: voice=%s", voice)
+        logger.warning("TTS empty audio: voice=%s detected=%s", voice, detected)
         return None
     except Exception as exc:
-        logger.warning("TTS failed: voice=%s error=%s", voice, exc)
+        logger.warning("TTS failed: voice=%s detected=%s error=%s", voice, detected, exc)
         return None
 
 
