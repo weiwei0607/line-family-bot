@@ -44,10 +44,9 @@ def _get_vacuum_reminders() -> str:
     try:
         import sys
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from vacuum_tracker import _load, _days_since, SCHEDULE
+        from vacuum_tracker import _load_records, _days_since, SCHEDULE
 
-        data = _load()
-        records = data.get("records", [])
+        records = _load_records()
         alerts = []
         for action, s in SCHEDULE.items():
             relevant = [r for r in records if r["action"] == action]

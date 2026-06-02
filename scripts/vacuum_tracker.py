@@ -2,44 +2,37 @@
 # -*- coding: utf-8 -*-
 """
 Family Bot - 掃地機器人（小白）＋ 家務維護紀錄模組
+資料儲存：Google Sheets「小白紀錄」tab（columns: timestamp, action, user, note）
 
 用法（在 LINE 打字）：
   幫小白洗集塵盒
-  收拾：自己區域資源回收、掃地機器人集塵盒清洗濾網更換、公共區域過期零食清理空罐子清洗
+  收拾：掃地機器人集塵盒清洗濾網更換
   小白狀態
-  小白多久沒清
-
-儲存：本地 JSON（scripts/data/vacuum_log.json）
 """
 
-import json
-import os
 import re
+import logging
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from zoneinfo import ZoneInfo
 
-# ── 設定 ──────────────────────────────────────────────────────────────
-DATA_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(DATA_DIR, "data", "vacuum_log.json")
+logger = logging.getLogger(__name__)
 
 TZ = ZoneInfo("Asia/Taipei")
+_TAB = "小白紀錄"
+_TAB_ENSURED = False
 
-# 建議維護頻率（用於提醒）
 SCHEDULE = {
-    # 小白維護
     "empty_dustbin":  {"days": 7,   "label": "倒集塵盒",       "icon": "🗑️",  "category": "小白"},
     "clean_dustbin":  {"days": 14,  "label": "洗集塵盒",       "icon": "🧼",  "category": "小白"},
     "clean_brush":    {"days": 14,  "label": "清理主刷",       "icon": "🌀",  "category": "小白"},
     "replace_brush":  {"days": 180, "label": "換主刷",         "icon": "🔄",  "category": "小白"},
     "replace_filter": {"days": 30,  "label": "換濾網",         "icon": "🫁",  "category": "小白"},
-    # 家務
     "recycle":        {"days": 7,   "label": "資源回收",       "icon": "♻️",  "category": "家務"},
     "clean_public":   {"days": 3,   "label": "公共區域清理",   "icon": "🧹",  "category": "家務"},
     "clean_fridge":   {"days": 14,  "label": "清理過期食品",   "icon": "🥫",  "category": "家務"},
 }
 
-# 自然語言關鍵字對應 action（正序 + 反序）
 KEYWORDS = {
     "empty_dustbin":  ["倒集塵盒", "倒垃圾", "清集塵盒"],
     "clean_dustbin":  ["洗集塵盒", "洗塵盒",
@@ -60,20 +53,63 @@ KEYWORDS = {
 QUERY_KEYWORDS = ["小白狀態", "小白紀錄", "小白多久", "小白狀況", "小白提醒",
                   "家務狀態", "家務紀錄", "家務多久", "收拾狀態", "整理狀態"]
 
-# ── 儲存層 ────────────────────────────────────────────────────────────
 
-def _load() -> Dict[str, Any]:
-    if not os.path.exists(DATA_FILE):
-        return {"records": [], "device_name": "小白"}
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+# ── Sheets 操作 ──────────────────────────────────────────────────────────
+
+def _ensure_tab():
+    global _TAB_ENSURED
+    if _TAB_ENSURED:
+        return
+    try:
+        from sheets import _get_service, _get_sheet_id
+        svc = _get_service()
+        sid = _get_sheet_id()
+        meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
+        titles = [s["properties"]["title"] for s in meta.get("sheets", [])]
+        if _TAB not in titles:
+            svc.spreadsheets().batchUpdate(
+                spreadsheetId=sid,
+                body={"requests": [{"addSheet": {"properties": {"title": _TAB}}}]},
+            ).execute()
+            svc.spreadsheets().values().update(
+                spreadsheetId=sid,
+                range=f"{_TAB}!A1:D1",
+                valueInputOption="USER_ENTERED",
+                body={"values": [["timestamp", "action", "user", "note"]]},
+            ).execute()
+        _TAB_ENSURED = True
+    except Exception as exc:
+        logger.warning("_ensure_tab failed: %s", exc)
 
 
-def _save(data: Dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def _load_records() -> list[dict]:
+    """從 Google Sheets 讀取所有維護紀錄"""
+    try:
+        from sheets import _read
+        rows = _read(_TAB, "A2:D2000")
+        records = []
+        for r in rows:
+            if not r or len(r) < 2:
+                continue
+            records.append({
+                "timestamp": r[0],
+                "action":    r[1] if len(r) > 1 else "",
+                "user":      r[2] if len(r) > 2 else "",
+                "note":      r[3] if len(r) > 3 else "",
+            })
+        return records
+    except Exception as exc:
+        logger.warning("_load_records failed: %s", exc)
+        return []
 
+
+def _append_record(action: str, user: str, note: str):
+    from sheets import _append
+    _ensure_tab()
+    _append(_TAB, [_now(), action, user, note])
+
+
+# ── 時間工具 ──────────────────────────────────────────────────────────────
 
 def _now() -> str:
     return datetime.now(TZ).isoformat()
@@ -88,41 +124,24 @@ def _days_since(ts: str) -> int:
 
 
 def _fmt_date(ts: str) -> str:
-    dt = _parse(ts)
-    return dt.strftime("%Y/%m/%d %H:%M")
+    return _parse(ts).strftime("%Y/%m/%d %H:%M")
 
 
-# ── 核心邏輯 ──────────────────────────────────────────────────────────
+# ── 核心邏輯 ──────────────────────────────────────────────────────────────
 
 def add_record(action: str, user: str = "家人", note: str = "") -> list[str]:
     """新增一筆維護紀錄（洗集塵盒時順便記倒集塵盒）"""
     if action not in SCHEDULE:
         return [f"❌ 不認識的維護項目：{action}"]
 
-    data = _load()
     labels = []
 
-    # 洗集塵盒時順便記倒集塵盒（洗一定會倒）
     if action == "clean_dustbin":
-        empty_rec = {
-            "action": "empty_dustbin",
-            "user": user,
-            "timestamp": _now(),
-            "note": note,
-        }
-        data["records"].append(empty_rec)
+        _append_record("empty_dustbin", user, note)
         e = SCHEDULE["empty_dustbin"]
         labels.append(f"{e['icon']} {e['label']}")
 
-    record = {
-        "action": action,
-        "user": user,
-        "timestamp": _now(),
-        "note": note,
-    }
-    data["records"].append(record)
-    _save(data)
-
+    _append_record(action, user, note)
     s = SCHEDULE[action]
     labels.append(f"{s['icon']} {s['label']}")
     return labels
@@ -130,23 +149,18 @@ def add_record(action: str, user: str = "家人", note: str = "") -> list[str]:
 
 def get_status() -> str:
     """查詢目前狀態（按類別分組，超期項目醒目提示）"""
-    data = _load()
-    records = data.get("records", [])
-    device = data.get("device_name", "小白")
+    records = _load_records()
 
     if not records:
         return (
-            f"🤖 {device} 目前還沒有任何維護紀錄。\n"
-            f"打「幫小白洗集塵盒」或「收拾」之類的就可以開始紀錄囉！"
+            "🤖 小白 目前還沒有任何維護紀錄。\n"
+            "打「幫小白洗集塵盒」或「收拾」之類的就可以開始紀錄囉！"
         )
 
-    # 按 category 分組
-    categories = {}
+    categories: dict[str, list] = {}
     for action, s in SCHEDULE.items():
         cat = s["category"]
-        if cat not in categories:
-            categories[cat] = []
-        categories[cat].append((action, s))
+        categories.setdefault(cat, []).append((action, s))
 
     lines = []
     overdue_alerts = []
@@ -159,16 +173,13 @@ def get_status() -> str:
                 latest = max(relevant, key=lambda r: r["timestamp"])
                 days = _days_since(latest["timestamp"])
                 overdue = days > s["days"]
+                status_emoji = "🔴" if overdue else "🟢"
                 if overdue:
-                    status_emoji = "🔴"
                     overdue_alerts.append(
                         f"{s['icon']} {s['label']} 已過 {days} 天（建議每{s['days']}天）"
                     )
-                else:
-                    status_emoji = "🟢"
-                hint = f"（建議每{s['days']}天）"
                 cat_lines.append(
-                    f"  {s['icon']} {s['label']}: {status_emoji} 已過 {days} 天 {hint}\n"
+                    f"  {s['icon']} {s['label']}: {status_emoji} 已過 {days} 天（建議每{s['days']}天）\n"
                     f"     上次：{_fmt_date(latest['timestamp'])} by {latest['user']}"
                 )
             else:
@@ -181,7 +192,6 @@ def get_status() -> str:
             lines.append(f"\n📂 {cat}")
             lines.extend(cat_lines)
 
-    # 超期提醒放在最前面
     if overdue_alerts:
         header = ["⚠️ 以下項目已超期，該處理囉！"] + [f"  • {a}" for a in overdue_alerts]
         lines = header + lines
@@ -191,28 +201,22 @@ def get_status() -> str:
     return "\n".join(lines)
 
 
-# ── 指令解析 ──────────────────────────────────────────────────────────
+# ── 指令解析 ──────────────────────────────────────────────────────────────
 
 def parse_message(text: str) -> Optional[Dict[str, Any]]:
-    """
-    解析 LINE 訊息，回傳 {'type': 'record'|'query', 'actions': [...], 'note': ...}
-    解析不到則回傳 None
-    """
     t_raw = text.strip()
     t = t_raw.replace(" ", "").replace("　", "")
 
-    # 查詢指令
     for kw in QUERY_KEYWORDS:
         if kw in t or kw in t_raw:
             return {"type": "query", "actions": []}
 
-    # 紀錄指令：收集所有匹配到的 action（一句話可能包含多個動作）
     matched_actions = []
     for action, keywords in KEYWORDS.items():
         for kw in keywords:
             if kw in t:
                 matched_actions.append(action)
-                break  # 該 action 已匹配，不再比對其他關鍵字
+                break
 
     if matched_actions:
         note = ""
@@ -225,15 +229,13 @@ def parse_message(text: str) -> Optional[Dict[str, Any]]:
 
 
 def handle(text: str, user: str = "家人") -> str:
-    """LINE Webhook 收到訊息時直接呼叫這個函式"""
     parsed = parse_message(text)
     if not parsed:
-        return ""  # 不回覆（讓其他模組處理）
+        return ""
 
     if parsed["type"] == "query":
         return get_status()
 
-    # 依序記錄多個動作
     all_labels = []
     for action in parsed["actions"]:
         labels = add_record(action, user=user, note=parsed.get("note", ""))
@@ -242,7 +244,6 @@ def handle(text: str, user: str = "家人") -> str:
     if not all_labels:
         return ""
 
-    # 去重（洗集塵盒會連帶記倒集塵盒，同一批可能重複）
     seen = set()
     unique_labels = []
     for lbl in all_labels:
@@ -254,13 +255,3 @@ def handle(text: str, user: str = "家人") -> str:
     body = "\n".join(f"  {r}" for r in unique_labels)
     footer = f"\n👤 紀錄人：{user}\n🕐 {_fmt_date(_now())}"
     return header + body + footer
-
-
-# ── 測試 ──────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    test_msg = "收拾\n自己區域的資源回收\n掃地機器人的集塵盒清洗濾網更換\n公共區域的過期零食清理空罐子清洗"
-    print("=== 多動作測試 ===")
-    print(handle(test_msg, user="姊姊"))
-    print()
-    print("=== 狀態查詢 ===")
-    print(handle("小白狀態"))
