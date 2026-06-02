@@ -5,12 +5,12 @@ Daily Dose API — 為 Daily Dose App 提供內容 API
 
 import logging
 from flask import Blueprint, jsonify, request
-from api_helpers import (
+from api_helpers import get_nasa_apod, translate_text
+from entertainment_api import (
     get_motivation_quote, get_joke, get_fun_fact, get_astronomy_fact,
     get_exercise, get_anime_quote, get_horoscope, get_movie, get_tmdb_movie,
     get_random_activity, get_cocktail, get_meal_random, get_open_trivia,
-    get_advice, get_movie_quote, get_chuck_norris, get_number_fact,
-    get_nasa_apod, translate_text, SIGN_MAP,
+    get_advice, get_movie_quote, get_chuck_norris, get_number_fact, SIGN_MAP,
 )
 
 dose_bp = Blueprint("dose", __name__, url_prefix="/dose")
