@@ -95,20 +95,29 @@ def _ensure_tab(tab_name: str) -> bool:
 
 
 def _retry_gapi(fn, max_retries=3, backoff=2):
+    global _SHEETS_SERVICE
+    import time
+    from google.auth.exceptions import RefreshError, TransportError
     last_exc = None
     for attempt in range(max_retries):
         try:
             return fn()
+        except RefreshError:
+            _SHEETS_SERVICE = None  # token 失效，下次重建
+            raise
+        except TransportError as e:
+            _SHEETS_SERVICE = None  # 網路問題，重建後重試
+            last_exc = e
+            if attempt < max_retries - 1:
+                time.sleep(backoff ** attempt)
         except HttpError as e:
             last_exc = e
             if e.resp.status in (400, 404):
                 raise
             if e.resp.status == 429:
-                import time
-                time.sleep((backoff ** attempt) + 1)  # extra delay for rate limit
+                time.sleep((backoff ** attempt) + 1)
                 continue
             if attempt < max_retries - 1:
-                import time
                 time.sleep(backoff ** attempt)
     raise last_exc
 
