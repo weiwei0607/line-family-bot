@@ -1,8 +1,8 @@
 """
-每週對話紀錄清理 + 總結
-- 刪除無意義的指令噪音（純功能指令、查詢等）
+每日對話紀錄清理 + 每週總結
+- 每天刪除無意義的指令噪音（純功能指令、查詢等）
 - 保留有意義的對話（閒聊、分享、情感、討論）
-- 生成本週對話亮點摘要，發送到群組
+- 每週一生成對話亮點摘要，發送到群組
 """
 
 import os
@@ -192,11 +192,9 @@ def _get_gemini_summary(meaningful_rows: list[list]) -> str:
 
 def main():
     today = datetime.now(TW_TZ)
-    # 跑上週的清理（週一執行，清理上週日～本週日的對話）
-    week_start = (today - timedelta(days=7)).strftime("%Y-%m-%d")
-    week_end = today.strftime("%Y-%m-%d")
+    is_monday = today.weekday() == 0
 
-    logger.info("weekly_memory_cleanup: %s ~ %s", week_start, week_end)
+    logger.info("daily_memory_cleanup: %s, is_monday=%s", today.strftime("%Y-%m-%d"), is_monday)
 
     # 1. 讀取對話紀錄
     rows = _read(_TAB, "A2:D5000")
@@ -241,14 +239,17 @@ def main():
     # 4. 生成本週對話摘要
     summary = _get_gemini_summary(meaningful)
 
-    # 5. 發送到群組
-    msg = (
-        f"🧹 本週對話紀錄清理完成！\n"
-        f"刪除了 {noise_count} 條指令噪音，保留 {len(meaningful)} 條有意義的對話。\n\n"
-        f"📌 本週亮點：\n{summary}"
-    )
+    # 5. 發送到群組（每週一發 AI 摘要，其他日子只發清理報告）
+    if is_monday:
+        msg = (
+            f"🧹 本週對話紀錄清理完成！\n"
+            f"刪除了 {noise_count} 條指令噪音，保留 {len(meaningful)} 條有意義的對話。\n\n"
+            f"📌 本週亮點：\n{summary}"
+        )
+    else:
+        msg = f"🧹 每日對話清理：刪除 {noise_count} 條噪音，保留 {len(meaningful)} 條。"
     push_text_to_group(msg)
-    logger.info("Weekly memory cleanup & summary sent.")
+    logger.info("Daily memory cleanup sent. is_monday=%s", is_monday)
 
 
 if __name__ == "__main__":
