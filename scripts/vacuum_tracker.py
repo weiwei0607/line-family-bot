@@ -94,12 +94,26 @@ def _fmt_date(ts: str) -> str:
 
 # ── 核心邏輯 ──────────────────────────────────────────────────────────
 
-def add_record(action: str, user: str = "家人", note: str = "") -> str:
-    """新增一筆維護紀錄"""
+def add_record(action: str, user: str = "家人", note: str = "") -> list[str]:
+    """新增一筆維護紀錄（洗集塵盒時順便記倒集塵盒）"""
     if action not in SCHEDULE:
-        return f"❌ 不認識的維護項目：{action}"
+        return [f"❌ 不認識的維護項目：{action}"]
 
     data = _load()
+    labels = []
+
+    # 洗集塵盒時順便記倒集塵盒（洗一定會倒）
+    if action == "clean_dustbin":
+        empty_rec = {
+            "action": "empty_dustbin",
+            "user": user,
+            "timestamp": _now(),
+            "note": note,
+        }
+        data["records"].append(empty_rec)
+        e = SCHEDULE["empty_dustbin"]
+        labels.append(f"{e['icon']} {e['label']}")
+
     record = {
         "action": action,
         "user": user,
@@ -110,9 +124,8 @@ def add_record(action: str, user: str = "家人", note: str = "") -> str:
     _save(data)
 
     s = SCHEDULE[action]
-    return (
-        f"{s['icon']} {s['label']}"
-    )
+    labels.append(f"{s['icon']} {s['label']}")
+    return labels
 
 
 def get_status() -> str:
@@ -221,15 +234,24 @@ def handle(text: str, user: str = "家人") -> str:
         return get_status()
 
     # 依序記錄多個動作
-    results = []
+    all_labels = []
     for action in parsed["actions"]:
-        results.append(add_record(action, user=user, note=parsed.get("note", "")))
+        labels = add_record(action, user=user, note=parsed.get("note", ""))
+        all_labels.extend(labels)
 
-    if not results:
+    if not all_labels:
         return ""
 
-    header = f"✅ 已紀錄 {len(results)} 項！\n"
-    body = "\n".join(f"  {r}" for r in results)
+    # 去重（洗集塵盒會連帶記倒集塵盒，同一批可能重複）
+    seen = set()
+    unique_labels = []
+    for lbl in all_labels:
+        if lbl not in seen:
+            seen.add(lbl)
+            unique_labels.append(lbl)
+
+    header = f"✅ 已紀錄 {len(unique_labels)} 項！\n"
+    body = "\n".join(f"  {r}" for r in unique_labels)
     footer = f"\n👤 紀錄人：{user}\n🕐 {_fmt_date(_now())}"
     return header + body + footer
 

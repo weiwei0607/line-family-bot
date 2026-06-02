@@ -108,10 +108,9 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
                     try:
                         import sys
                         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                        from vacuum_tracker import add_record as vac_add, SCHEDULE
-                        vac_add(action, user=member or "家人", note="")
-                        s = SCHEDULE[action]
-                        vacuum_records.append(f"{s['icon']} {s['label']}")
+                        from vacuum_tracker import add_record as vac_add
+                        labels = vac_add(action, user=member or "家人", note="")
+                        vacuum_records.extend(labels)
                     except Exception as exc:
                         logger.exception("vacuum add_record failed: %s", exc)
                         errors.append(line)
