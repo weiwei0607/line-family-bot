@@ -1,4 +1,5 @@
 """Weather Api for line-family-bot."""
+from __future__ import annotations
 
 import re
 import requests

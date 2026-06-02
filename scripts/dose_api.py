@@ -1,6 +1,7 @@
 """
 Daily Dose API — 為 Daily Dose App 提供內容 API
 掛載在現有的 Flask app 上
+from __future__ import annotations
 """
 
 import logging

@@ -2,6 +2,7 @@
 API 工具集：天氣、AQI、星座、笑話、問答、飲料、運動、動漫、圖片生成、
 匯率、金價、電影、串流平台、BMI、食物熱量、隨機活動、日文、西班牙文
 """
+from __future__ import annotations
 
 import os
 import re
@@ -746,7 +747,6 @@ _LAZY_SUBMODULES = [
 
 def __getattr__(name: str):
     """Lazy-load functions from split submodules to speed up cold starts."""
-from __future__ import annotations
     for mod in _LAZY_SUBMODULES:
         try:
             submodule = __import__(mod, globals(), locals(), [name])

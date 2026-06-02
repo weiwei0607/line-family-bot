@@ -1,4 +1,5 @@
 """Vote handler (投票 / 投A / 投票結果 / 取消投票)."""
+from __future__ import annotations
 
 import re
 from collections import Counter
@@ -11,7 +12,6 @@ TW_TZ = timezone(timedelta(hours=8))
 
 def handle_vote(text: str, group_id: str, member_label: str) -> str | None:
     """Handle vote commands. Returns reply_text or None."""
-from __future__ import annotations
     m = re.match(r'^投票\s+(.+?)(?:\s{1,2}|\s*[,，]\s*)(.+)$', text)
     if m:
         gid = group_id or "default"
