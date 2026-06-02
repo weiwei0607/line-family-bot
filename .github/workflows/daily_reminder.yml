@@ -12,5 +12,8 @@ jobs:
       - name: Trigger daily push
         run: |
           curl -s -X POST "${{ secrets.RENDER_APP_URL }}/daily_push" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET || secrets.FAMILY_LINE_CHANNEL_ACCESS_TOKEN }}" \
-            --fail
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            --max-time 90 \
+            --retry 2 --retry-delay 15 \
+            -w "\nHTTP %{http_code}" \
+            || echo "Daily push failed (Render may be cold-starting)"

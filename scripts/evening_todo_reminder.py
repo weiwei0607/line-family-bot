@@ -36,11 +36,9 @@ def _ai_shame_list(todos: list[dict]) -> list[str]:
 def main():
     todos = get_todos(only_pending=True)
     today = datetime.now(TW_TZ).strftime("%Y-%m-%d")
-    tomorrow = (datetime.now(TW_TZ) + timedelta(days=1)).strftime("%Y-%m-%d")
 
     today_todos = [t for t in todos if t["date"] == today]
     overdue_todos = [t for t in todos if t["date"] < today]
-    tomorrow_todos = [t for t in todos if t["date"] == tomorrow]
 
     lines = []
     all_shame_targets = overdue_todos + today_todos
@@ -69,13 +67,7 @@ def main():
         lines.append("\n今天快結束了，沒做完的人自己看著辦 😤")
         lines.append("")
 
-    # 明天預告（溫柔一點）
-    if tomorrow_todos:
-        lines.append("📅 明天待辦預告：")
-        for t in tomorrow_todos:
-            lines.append(f"  • {t['member']}｜{t['content']}")
-        lines.append("\n早點睡，明天又是美好的一天 💪")
-        lines.append("")
+    # 明天預告由 check_reminders 在 20:00+ 以個別訊息推送，這裡不重複
 
     if not lines:
         lines.append("🌙 今晚沒有待辦，可以安心睡覺啦～晚安！😴")
