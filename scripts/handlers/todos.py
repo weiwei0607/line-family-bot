@@ -125,7 +125,7 @@ def _extract_reminder(text: str) -> tuple | None:
 def handle_add_todo(member: str, text: str) -> str:
     parsed = _extract_reminder(text)
     if not parsed:
-        return "格式：提醒 [人名] [日期] [事項]\n或：提醒我 明天 要做XXX\n日期支援：今天/明天/後天/6/5"
+        return "格式：提醒 [人名] [日期] [事項]\n或：提醒我 明天 要做XXX\n日期支援：今天/明天/後天/大後天/6/5"
     target, date_s, content = parsed
     if target is None:
         target = member or "你"
@@ -134,7 +134,7 @@ def handle_add_todo(member: str, text: str) -> str:
 
     date_str = _parse_reminder_date(date_s)
     if not date_str:
-        return f"看不懂日期「{date_s}」\n支援：今天/明天/後天/6月5日/6/5"
+        return f"看不懂日期「{date_s}」\n支援：今天/明天/後天/大後天/6月5日/6/5"
 
     time_str = _extract_time(content) or ""
 

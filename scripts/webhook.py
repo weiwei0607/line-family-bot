@@ -656,6 +656,8 @@ def handle_audio_message(event: MessageEvent):
 
     # ── 語音轉文字：Groq Whisper 優先，Gemini 作 fallback ──
     transcript = groq_stt(audio_bytes, "audio/mpeg")
+    if transcript:
+        del audio_bytes  # Groq succeeded; free raw audio early
 
     if not transcript and GEMINI_KEY:
         try:
