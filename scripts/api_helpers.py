@@ -440,8 +440,14 @@ def text_to_speech(text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
         if not segments:
             return None
 
+        # 限制最多 2 段，避免 edge-tts 並發過多導致記憶體爆掉 (Render 512MB)
+        if len(segments) > 2:
+            # 超過 2 段時合併為 1 段，使用主語言語音
+            merged_text = " ".join(seg for _, seg in segments)
+            segments = [(lang, merged_text)]
+
         async def _synth_one(seg_text: str, seg_lang: str) -> bytes | None:
-            voices = _EDGE_TTS_VOICES.get(seg_lang, ["zh-TW-HsiaoChenNeural"])
+            voices = _EDGE_TTS_VOICES.get(seg_lang, _EDGE_TTS_VOICES.get(lang, ["zh-TW-HsiaoChenNeural"]))
             voice = random.choice(voices)
             communicate = edge_tts.Communicate(seg_text[:500], voice)
             buf = io.BytesIO()
