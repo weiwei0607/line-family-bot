@@ -979,3 +979,47 @@ def complete_todo_by_content(member: str, content: str) -> dict | None:
     except Exception as e:
         logger.warning("complete_todo_by_content failed: %s", e)
         return None
+
+
+def delete_todo_by_content(member: str, content: str) -> dict | None:
+    """Delete matching pending todo row completely. Returns todo dict or None."""
+    try:
+        todos = get_todos(only_pending=True)
+        matched = next(
+            (t for t in todos if content in t["content"] or t["content"] in content),
+            None,
+        )
+        if not matched:
+            return None
+        svc = _get_service()
+        sid = _get_sheet_id()
+        meta = svc.spreadsheets().get(spreadsheetId=sid).execute()
+        sheet_id = None
+        for s in meta.get("sheets", []):
+            if s["properties"]["title"] == "待辦":
+                sheet_id = s["properties"]["sheetId"]
+                break
+        if sheet_id is None:
+            return None
+        row_index = matched["row"] - 1  # API uses 0-based index
+        svc.spreadsheets().batchUpdate(
+            spreadsheetId=sid,
+            body={
+                "requests": [
+                    {
+                        "deleteDimension": {
+                            "range": {
+                                "sheetId": sheet_id,
+                                "dimension": "ROWS",
+                                "startIndex": row_index,
+                                "endIndex": row_index + 1,
+                            }
+                        }
+                    }
+                ]
+            },
+        ).execute()
+        return matched
+    except Exception as e:
+        logger.warning("delete_todo_by_content failed: %s", e)
+        return None

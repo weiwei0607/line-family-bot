@@ -4,7 +4,7 @@ Todo / reminder management handlers for family bot.
 
 import re
 from datetime import datetime, timedelta
-from sheets import add_todo, get_todos, complete_todo_by_content, TW_TZ
+from sheets import add_todo, get_todos, complete_todo_by_content, delete_todo_by_content, TW_TZ
 
 _CN_NUM = {
     '零': 0, '一': 1, '二': 2, '三': 3, '四': 4,
@@ -164,4 +164,14 @@ def handle_complete_todo(member: str, text: str) -> str | None:
     result = complete_todo_by_content(member, content)
     if result:
         return f"✅ 完成！「{result['content']}」從待辦清單移除 🎉"
+    return f"找不到「{content}」在你的待辦裡"
+
+
+def handle_cancel_todo(member: str, text: str) -> str | None:
+    content = re.sub(r'^取消待辦\s*', '', text).strip()
+    if not content:
+        return "請加上要取消的待辦內容！\n例：取消待辦 站起來走走"
+    result = delete_todo_by_content(member, content)
+    if result:
+        return f"🗑️ 已取消！「{result['content']}」從待辦清單刪除"
     return f"找不到「{content}」在你的待辦裡"

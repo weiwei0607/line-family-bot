@@ -473,6 +473,11 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
             if result:
                 reply(reply_token, result)
                 return True
+        if text.startswith("取消待辦"):
+            result = handle_cancel_todo(member, text)
+            if result:
+                reply(reply_token, result)
+                return True
 
         if (
             handle_admin(reply_token, source, text) or
