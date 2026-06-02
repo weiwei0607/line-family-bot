@@ -150,8 +150,15 @@ def handle_add_todo(member: str, text: str) -> str:
         return "記錄失敗，等一下再試 😢"
     date_display = date_str[5:].replace("-", "/")
     by_str = f"（{member} 幫你記的）" if target != member and member else ""
-    time_note = f"（⏰ {time_str} 到時提醒）" if time_str else ""
-    return f"✅ 已幫 {target} 記下！\n📅 {date_display}：{content}{by_str}{time_note}\n前一天晚上和當天都會提醒 🔔"
+    is_today = (date_str == datetime.now(TW_TZ).strftime("%Y-%m-%d"))
+    if time_str:
+        if is_today:
+            remind_note = f"⏰ {time_str} 到時提醒，沒做完每30分鐘催一次（最多3次）🔔"
+        else:
+            remind_note = f"前一天晚上 + {date_display} {time_str} 到時提醒，沒做完每30分鐘催一次（最多3次）🔔"
+    else:
+        remind_note = "今晚 20:00 會提醒 🔔" if is_today else "前一天晚上和當天 20:00 都會提醒 🔔"
+    return f"✅ 已幫 {target} 記下！\n📅 {date_display}：{content}{by_str}\n{remind_note}"
 
 
 def handle_view_todos() -> str:
@@ -162,7 +169,11 @@ def handle_view_todos() -> str:
     lines = ["📋 待辦事項：\n"]
     for t in sorted(todos, key=lambda x: x["date"]):
         date_display = t["date"][5:].replace("-", "/")
-        overdue = " ⚠️ 逾期" if t["date"] < today else ""
+        if t["date"] < today:
+            days = (datetime.now(TW_TZ).date() - datetime.strptime(t["date"], "%Y-%m-%d").date()).days
+            overdue = f" ⚠️ 逾期{days}天"
+        else:
+            overdue = ""
         by = f"（{t['created_by']} 記的）" if t.get('created_by') and t['created_by'] != t['member'] else ""
         lines.append(f"• {t['member']}｜{date_display} {t['content']}{overdue}{by}")
     return "\n".join(lines)

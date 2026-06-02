@@ -433,7 +433,7 @@ def check_reminders():
             try:
                 if t["date"] != tomorrow:
                     continue
-                preday_key = f"preday:{t['row']}"
+                preday_key = f"preday:{t['date']}:{t['member']}:{t['content'][:20]}"
                 if _kv_get(preday_key):
                     continue
                 member = t["member"]
