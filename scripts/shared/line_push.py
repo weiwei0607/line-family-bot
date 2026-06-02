@@ -37,7 +37,9 @@ def reply_text(reply_token: str, text: str):
                 )
             )
     except Exception as exc:
-        logger.warning("reply_text failed: %s", exc)
+        logger.warning("reply_text failed (falling back to push): %s", exc)
+        if _LINE_GROUP_ID:
+            push_text(_LINE_GROUP_ID, text)
 
 
 def reply_image(reply_token: str, image_url: str, fallback_text: str = "圖片發送失敗"):
@@ -90,8 +92,11 @@ def reply_image_with_text(reply_token: str, image_url: str, text: str):
                 )
             )
     except Exception as exc:
-        logger.warning("reply_image_with_text failed: %s", exc)
-        reply_text(reply_token, text)
+        logger.warning("reply_image_with_text failed (falling back to push): %s", exc)
+        if _LINE_GROUP_ID:
+            push_messages(_LINE_GROUP_ID, [{"type": "text", "text": text[:4900]}])
+        else:
+            reply_text(reply_token, text)
 
 
 def _retry_http(fn, max_retries=3, backoff=2):
