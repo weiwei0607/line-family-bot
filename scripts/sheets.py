@@ -1040,7 +1040,6 @@ def delete_todo_by_row(row: int) -> bool:
             },
         ).execute()
         _sc_del("todos_pending", "todos_all")
-        _TODO_SHEET_ID = None  # row numbers shifted after delete
         return True
     except Exception as e:
         logger.warning("delete_todo_by_row failed: %s", e)

@@ -181,8 +181,9 @@ def handle_complete_todo(member: str, text: str) -> str | None:
             idx = int(content) - 1
             if 0 <= idx < len(items):
                 try:
-                    from sheets import _update_cell
+                    from sheets import _update_cell, _sc_del
                     _update_cell("待辦", f"E{items[idx]['row']}", "已完成")
+                    _sc_del("todos_pending", "todos_all")
                     kv_delete(key)
                     return f"✅ 完成！「{items[idx]['content']}」從待辦清單移除 🎉"
                 except Exception:

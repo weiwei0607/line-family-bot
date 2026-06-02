@@ -13,4 +13,7 @@ jobs:
         run: |
           curl -s -X POST "${{ secrets.RENDER_APP_URL }}/check_reminders" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            --fail
+            --max-time 90 \
+            --retry 2 --retry-delay 15 \
+            -w "\nHTTP %{http_code}" \
+            || echo "Reminder check failed (Render may be cold-starting)"
