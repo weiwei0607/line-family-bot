@@ -5,7 +5,8 @@ Currency, gold, stock, crypto.
 
 import re
 from concurrent.futures import ThreadPoolExecutor
-from api_helpers import get_currency, get_gold_price, get_stock, get_crypto, QUOTA_MSG
+from finance_api import get_currency, get_gold_price, get_stock, get_crypto
+from api_helpers import QUOTA_MSG
 from line_push import reply_text as reply
 
 

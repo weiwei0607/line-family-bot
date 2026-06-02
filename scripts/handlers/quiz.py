@@ -2,7 +2,8 @@
 
 import re
 from line_push import reply_text as reply
-from api_helpers import get_open_trivia, get_trivia, smart_translate, call_gemini
+from entertainment_api import get_open_trivia, get_trivia
+from api_helpers import smart_translate, call_gemini
 
 _quiz_state: dict[str, dict] = {}  # group_id -> {question, answer}
 

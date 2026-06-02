@@ -5,7 +5,8 @@ Single sign, all-family, and compatibility.
 
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from api_helpers import get_horoscope_round_robin, get_starmatch, smart_translate, call_gemini, SIGN_MAP
+from entertainment_api import get_horoscope_round_robin, get_starmatch, SIGN_MAP
+from api_helpers import smart_translate, call_gemini
 from line_push import reply_text as reply
 
 

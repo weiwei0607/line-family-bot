@@ -4,7 +4,8 @@ Japanese lookup, Spanish lookup, translation.
 """
 
 import re
-from api_helpers import get_jisho, get_kanji_info, get_spanish_dict, translate_text, smart_translate, call_gemini
+from language_api import get_jisho, get_kanji_info, get_spanish_dict
+from api_helpers import translate_text, smart_translate, call_gemini
 from line_push import reply_text as reply
 
 
