@@ -792,7 +792,7 @@ def _analyze_group_images(group_id: str) -> str:
         del image_bytes
         url = (
             "https://generativelanguage.googleapis.com/v1beta/"
-            f"models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
+            f"models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
         )
         payload = {"contents": [{"parts": [
             {"text": "請用繁體中文描述這張圖片的內容（50字以內），直接描述重點。"},

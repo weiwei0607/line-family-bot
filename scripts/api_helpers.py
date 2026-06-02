@@ -312,7 +312,7 @@ def translate_text(text: str, target_lang: str = "zh-TW", source_lang: str = "au
             return text
         lang_name = _LANG_NAME.get(target_lang, target_lang)
         resp = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={key}",
             json={"contents": [{"parts": [{"text": f"把以下文字翻譯成{lang_name}，只給翻譯結果，不要解釋：\n\n{text}"}]}]},
             timeout=15,
         )
