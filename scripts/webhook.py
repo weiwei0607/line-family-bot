@@ -336,6 +336,77 @@ def daily_push():
     return "OK"
 
 
+@app.route("/check_reminders", methods=["POST"])
+def check_reminders():
+    """連環扣提醒：由 GitHub Actions 每 10 分鐘呼叫一次。"""
+    cron_secret = os.environ.get("CRON_SECRET", "")
+    token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    if not cron_secret or not token or token != cron_secret:
+        abort(403)
+
+    from sheets import get_todos, update_todo_reminder
+    from datetime import datetime as _dt, timedelta as _td
+    from sheets import TW_TZ
+
+    group_id = os.environ.get("LINE_GROUP_ID", "")
+    if not group_id:
+        return "LINE_GROUP_ID not set", 500
+
+    now = _dt.now(TW_TZ)
+    today = now.strftime("%Y-%m-%d")
+    todos = get_todos(only_pending=True)
+
+    sent = 0
+    for t in todos:
+        if t["date"] != today:
+            continue
+        time_str = t.get("time", "").strip()
+        if not time_str:
+            continue
+        reminded = t.get("reminded_count", 0)
+        if reminded >= 3:
+            continue
+
+        try:
+            todo_hour, todo_min = int(time_str[:2]), int(time_str[3:5])
+        except (ValueError, IndexError):
+            continue
+
+        due = _dt(now.year, now.month, now.day, todo_hour, todo_min, tzinfo=TW_TZ)
+        # First reminder at due time; subsequent ones every 30 min
+        trigger = due + _td(minutes=30 * reminded)
+        if now < trigger:
+            continue
+
+        member = t["member"]
+        content = t["content"]
+        if reminded == 0:
+            msg = f"🔔 提醒時間到！\n📌 {member}：{content}"
+            voice_text = f"提醒時間到！{member}，{content}！"
+        else:
+            bells = "🔔" * (reminded + 1)
+            msg = f"{bells} 還沒完成喔！\n📌 {member}：{content}\n完成後傳「完成待辦 {content[:10]}」"
+            voice_text = f"{member}，{content}還沒完成喔！快去做！"
+
+        push_messages(group_id, [{"type": "text", "text": msg}])
+
+        # ── 語音提醒 ──
+        base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+        if base_url:
+            tts_result = text_to_speech(voice_text, "zh-TW")
+            if tts_result:
+                audio_bytes, mime = tts_result
+                fname = save_tts_audio(audio_bytes, mime)
+                audio_url = f"{base_url}/tts/{fname}"
+                duration = min(len(voice_text) * 300 + 1000, 30000)
+                push_messages(group_id, [{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
+
+        update_todo_reminder(t["row"], reminded + 1)
+        sent += 1
+
+    return f"sent {sent} reminders", 200
+
+
 def _verify_signature(body: str, signature: str) -> bool:
     """Fast local signature check — no network, no exceptions."""
     secret = os.environ.get("LINE_CHANNEL_SECRET", "")
@@ -426,7 +497,12 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
 
     except Exception as exc:
         logger.exception("_process_text_message error: %s", exc)
-        reply(reply_token, f"❌ 指令處理時出錯：{type(exc).__name__}，請稍後再試或通知管理員 😢")
+        try:
+            from utils import send_telegram_alert
+            send_telegram_alert(f"_process_text_message {type(exc).__name__}: {exc}\ntext={text[:80]!r}")
+        except Exception:
+            pass
+        reply(reply_token, "😵 哎呀，我剛剛當機一下！稍後再試試，或是叫可愛的姊姊來修我 🔧")
         return True
 
     return False
@@ -558,10 +634,7 @@ def handle_audio_message(event: MessageEvent):
         reply(reply_token, "🎤 語音轉文字無法使用，請設定 GROQ_API_KEY 或 GEMINI_API_KEY")
         return
 
-    # 告訴使用者聽到了什麼
-    reply(reply_token, f"🎤 聽到：「{transcript[:80]}{'...' if len(transcript) > 80 else ''}」")
-
-    # 繼續當作文本處理
+    # 設定群組 context 和 member（要在 reply 前，確保記憶體記對群組）
     member = ""
     if hasattr(event, "source") and hasattr(event.source, "user_id"):
         member = resolve_member(event.source.user_id)
@@ -572,6 +645,9 @@ def handle_audio_message(event: MessageEvent):
         or f"dm_{user_id}"
     )
     _memory.set_context(group_id)
+
+    # 告訴使用者聽到了什麼
+    reply(reply_token, f"🎤 聽到：「{transcript[:80]}{'...' if len(transcript) > 80 else ''}」")
 
     _process_text_message(reply_token, transcript, event.source, member)
 
