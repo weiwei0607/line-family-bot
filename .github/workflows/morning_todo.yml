@@ -2,7 +2,7 @@ name: Morning Todo Reminder
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 08:00 CST (UTC+8)
+    - cron: '30 22 * * *'  # 06:30 CST (UTC+8，前一天 22:30 UTC)
   workflow_dispatch:
 
 jobs:
