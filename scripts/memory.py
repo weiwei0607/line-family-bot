@@ -1,8 +1,9 @@
 """
 對話記憶模組
-- 在記憶體維護最近 60 條訊息的滾動緩衝區
-- 每條訊息非同步存入 Google Sheets「對話紀錄」tab
-- 機器人啟動時從 Sheets 讀取最近記錄還原緩衝區
+- 每個 LINE 群組維護獨立的滾動緩衝區（60 條）
+- 對話訊息非同步寫入 Google Sheets「對話紀錄」tab（含 group_id 欄位）
+- 機器人啟動時從 Sheets 還原各群組歷史
+- 短暫記憶（機器人回覆）只存記憶體，TTL 2 小時後自動過濾
 """
 
 import logging
@@ -16,41 +17,63 @@ logger = logging.getLogger(__name__)
 TZ = ZoneInfo("Asia/Taipei")
 _TAB = "對話紀錄"
 _BUFFER_SIZE = 60
-_CONTEXT_SIZE = 20   # 給 AI 的最近幾條
-_MAX_MSG_LEN  = 300  # 存 Sheets 時截斷超長訊息
-_EPHEMERAL_TTL_HOURS = 2  # 短暫記憶保留時間
-_SHEETS_MAX_ROWS = 500   # Sheets 最多保留幾條對話紀錄
+_CONTEXT_SIZE = 20
+_MAX_MSG_LEN = 300
+_EPHEMERAL_TTL_HOURS = 2
+_SHEETS_MAX_ROWS = 500
 
-_buffer: deque = deque(maxlen=_BUFFER_SIZE)
+# 每個 group_id 一個獨立 deque
+_buffers: dict[str, deque] = {}
 _lock = threading.Lock()
 _loaded = False
+
+# 每個請求的 group_id context（thread-local）
+_ctx = threading.local()
+
+
+def set_context(group_id: str):
+    """在請求最開始設定當前群組 ID。"""
+    _ctx.group_id = group_id or "default"
+
+
+def _gid() -> str:
+    return getattr(_ctx, "group_id", "default")
+
+
+def _buf(group_id: str) -> deque:
+    if group_id not in _buffers:
+        _buffers[group_id] = deque(maxlen=_BUFFER_SIZE)
+    return _buffers[group_id]
 
 
 # ── 寫入 ──────────────────────────────────────────────────────────────────
 
 def record(speaker: str, message: str):
-    """記錄一條訊息到緩衝區，並非同步寫入 Sheets。"""
+    """記錄對話訊息到緩衝區，並非同步寫入 Sheets。"""
+    gid = _gid()
     ts = datetime.now(TZ).isoformat()
-    entry = {"ts": ts, "speaker": speaker, "message": message}
+    entry = {"ts": ts, "speaker": speaker, "message": message, "gid": gid}
     with _lock:
-        _buffer.append(entry)
+        _buf(gid).append(entry)
     from sheets import bg
-    bg(_save_one, ts, speaker, message)
+    bg(_save_one, ts, speaker, message, gid)
 
 
 def record_ephemeral(speaker: str, message: str):
-    """短暫記憶：只存緩衝區，不寫 Sheets，超過 TTL 自動過濾。"""
+    """短暫記憶：只存緩衝區，不寫 Sheets，TTL 後自動過濾。"""
+    gid = _gid()
     ts = datetime.now(TZ).isoformat()
-    entry = {"ts": ts, "speaker": speaker, "message": message, "ephemeral": True}
+    entry = {"ts": ts, "speaker": speaker, "message": message,
+             "gid": gid, "ephemeral": True}
     with _lock:
-        _buffer.append(entry)
+        _buf(gid).append(entry)
 
 
-def _save_one(ts: str, speaker: str, message: str):
+def _save_one(ts: str, speaker: str, message: str, gid: str):
     try:
         from sheets import _append, _ensure_tab
         _ensure_tab(_TAB)
-        _append(_TAB, [ts, speaker, message[:_MAX_MSG_LEN]])
+        _append(_TAB, [ts, speaker, message[:_MAX_MSG_LEN], gid])
     except Exception as exc:
         logger.warning("memory._save_one failed: %s", exc)
 
@@ -58,65 +81,75 @@ def _save_one(ts: str, speaker: str, message: str):
 # ── 讀取 ──────────────────────────────────────────────────────────────────
 
 def get_recent(n: int = _CONTEXT_SIZE) -> list[dict]:
-    now = datetime.now(TZ)
-    cutoff_ts = now.timestamp() - _EPHEMERAL_TTL_HOURS * 3600
+    gid = _gid()
+    cutoff = datetime.now(TZ).timestamp() - _EPHEMERAL_TTL_HOURS * 3600
     with _lock:
-        valid = [
-            m for m in _buffer
-            if not m.get("ephemeral")
-            or datetime.fromisoformat(m["ts"]).timestamp() > cutoff_ts
-        ]
-        return valid[-n:]
+        buf = list(_buf(gid))
+    valid = [
+        m for m in buf
+        if not m.get("ephemeral")
+        or datetime.fromisoformat(m["ts"]).timestamp() > cutoff
+    ]
+    return valid[-n:]
 
 
 def format_for_ai(n: int = _CONTEXT_SIZE) -> str:
-    """格式化最近 n 條訊息，供 AI prompt 使用。"""
+    """格式化最近 n 條訊息供 AI prompt 使用，含日期（跨日時顯示）。"""
     msgs = get_recent(n)
     if not msgs:
         return ""
+    today = datetime.now(TZ).date().isoformat()
     lines = ["【最近對話紀錄】"]
     for m in msgs:
-        ts_short = m["ts"][11:16]  # HH:MM
-        lines.append(f"[{ts_short}] {m['speaker']}: {m['message']}")
+        ts = m["ts"]
+        date_part = ts[:10]
+        time_part = ts[11:16]
+        label = time_part if date_part == today else f"{date_part[5:]} {time_part}"
+        lines.append(f"[{label}] {m['speaker']}: {m['message']}")
     return "\n".join(lines)
 
 
 # ── 啟動時還原 ────────────────────────────────────────────────────────────
 
 def load_from_sheets(n: int = _BUFFER_SIZE):
-    """從 Sheets 讀取最近 n 條記錄，填入緩衝區（只在啟動時呼叫一次）。"""
+    """從 Sheets 讀取最近記錄，按 group_id 分組填入各緩衝區（啟動時呼叫一次）。"""
     global _loaded
     if _loaded:
         return
     try:
         from sheets import _read, _ensure_tab
         _ensure_tab(_TAB)
-        rows = _read(_TAB, "A2:C5000")
+        rows = _read(_TAB, "A2:D5000")
         total = len(rows)
         if total > _SHEETS_MAX_ROWS:
             _prune_sheets(rows)
             rows = rows[-_SHEETS_MAX_ROWS:]
-        rows = rows[-n:]
         with _lock:
-            _buffer.clear()
-            for r in rows:
-                if len(r) >= 3:
-                    _buffer.append({"ts": r[0], "speaker": r[1], "message": r[2]})
+            for r in rows[-n:]:
+                if len(r) < 3:
+                    continue
+                gid = r[3].strip() if len(r) >= 4 and r[3].strip() else "default"
+                _buf(gid).append({
+                    "ts":      r[0],
+                    "speaker": r[1],
+                    "message": r[2],
+                    "gid":     gid,
+                })
         _loaded = True
-        logger.info("memory: loaded %d rows from Sheets (total was %d)", len(rows), total)
+        logger.info("memory: loaded %d rows (total %d)", min(n, total), total)
     except Exception as exc:
         logger.warning("memory.load_from_sheets failed: %s", exc)
 
 
 def _prune_sheets(all_rows: list):
-    """把 Sheets「對話紀錄」tab 修剪到最新 _SHEETS_MAX_ROWS 行。"""
+    """把 Sheets 修剪到最新 _SHEETS_MAX_ROWS 行。"""
     try:
         from sheets import _get_service, _get_sheet_id
         keep = all_rows[-_SHEETS_MAX_ROWS:]
         svc = _get_service()
         sid = _get_sheet_id()
         svc.spreadsheets().values().clear(
-            spreadsheetId=sid, range=f"{_TAB}!A2:C50000"
+            spreadsheetId=sid, range=f"{_TAB}!A2:D50000"
         ).execute()
         if keep:
             svc.spreadsheets().values().update(
@@ -125,6 +158,6 @@ def _prune_sheets(all_rows: list):
                 valueInputOption="USER_ENTERED",
                 body={"values": keep},
             ).execute()
-        logger.info("memory: pruned Sheets to %d rows", len(keep))
+        logger.info("memory: pruned to %d rows", len(keep))
     except Exception as exc:
         logger.warning("memory._prune_sheets failed: %s", exc)

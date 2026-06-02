@@ -59,10 +59,11 @@ import memory as _memory
 from sheets import bg as _bg
 _bg(_memory.load_from_sheets)  # 啟動時從 Sheets 還原對話歷史
 
-# 包裝 reply，讓機器人所有回覆自動記入短暫記憶
+# 包裝 reply，讓機器人回覆自動記入短暫記憶（跳過錯誤訊息）
+_ERROR_PREFIXES = ("❌", "⚠️", "⏳", "🚫")
 _raw_reply = reply
 def reply(token: str, text: str, **kw):
-    if text:
+    if text and not text.startswith(_ERROR_PREFIXES):
         _memory.record_ephemeral("機器人", text)
     return _raw_reply(token, text, **kw)
 
@@ -431,6 +432,14 @@ def handle_message(event: MessageEvent):
     user_id = ""
     if hasattr(event, "source") and hasattr(event.source, "user_id"):
         user_id = event.source.user_id
+
+    # 設定群組 context（記憶體隔離）
+    group_id = (
+        getattr(event.source, "group_id", None)
+        or getattr(event.source, "room_id", None)
+        or f"dm_{user_id}"
+    )
+    _memory.set_context(group_id)
 
     # Rate limiting (30 requests / 60s per user)
     if user_id and not rate_limit_check(user_id, max_requests=30, window_seconds=60):
