@@ -8,8 +8,23 @@ import sys
 from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(__file__))
 from sheets import get_members, get_chores, get_weekly_points, get_todos
-from api_helpers import format_weather_block
+from api_helpers import format_weather_block, call_ai
 from line_push import push_text_to_group
+
+
+def _ai_gentle_nudge(todos: list[dict]) -> str:
+    """Ask AI to write a warm morning encouragement based on pending todos."""
+    if not todos:
+        return "✨ 今天沒有待辦，盡情享受美好的一天吧！"
+    items_text = "\n".join(f"{i+1}. {t['member']}｜{t['content']}" for i, t in enumerate(todos))
+    prompt = (
+        f"早安！以下是家人今天的待辦事項，請幫我寫一段溫柔可愛的鼓勵語，"
+        f"提醒大家完成，語氣溫暖、帶 emoji、像家人一樣關心，繁體中文，50 字以內。\n\n"
+        f"{items_text}\n\n"
+        f"只回覆鼓勵語本身，不要加標題或說明。"
+    )
+    result = call_ai(prompt)
+    return result or "今天也要加油喔！💪✨"
 
 POINTS_THRESHOLD = int(os.environ.get("POINTS_THRESHOLD", "5"))
 TW_TZ = timezone(timedelta(hours=8))
@@ -43,8 +58,9 @@ def main():
 
     lines.append("")
 
-    # 待辦提醒（早上溫柔版）
-    if today_todos or overdue_todos:
+    # 待辦提醒（早上 AI 溫柔版）
+    all_todos = today_todos + overdue_todos
+    if all_todos:
         if today_todos:
             lines.append("📅 今天待辦：")
             for t in today_todos:
@@ -53,7 +69,7 @@ def main():
             lines.append("")
 
         if overdue_todos:
-            lines.append("⏰ 已經逾期，但今天還有機會補上 💪")
+            lines.append("⏰ 已經逾期，但今天還有機會補上：")
             for t in overdue_todos:
                 days_overdue = (datetime.strptime(today, "%Y-%m-%d") - datetime.strptime(t["date"], "%Y-%m-%d")).days
                 if days_overdue == 1:
@@ -61,8 +77,12 @@ def main():
                 else:
                     day_str = f"逾期 {days_overdue} 天"
                 lines.append(f"  • {t['member']}｜{t['content']}（{day_str}）")
-            lines.append("\n沒關係的，慢慢來，今天記得處理就好 🥺✨")
             lines.append("")
+
+        # AI 溫柔鼓勵語
+        nudge = _ai_gentle_nudge(all_todos)
+        lines.append(nudge)
+        lines.append("")
     else:
         lines.append("✅ 沒有待辦事項，太棒了！")
         lines.append("")
