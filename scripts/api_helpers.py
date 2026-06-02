@@ -391,15 +391,44 @@ _EDGE_TTS_VOICES = {
     "ko": ["ko-KR-SunHiNeural"],
 }
 
-def _detect_lang(text: str) -> str:
-    """Simple heuristic language detection for TTS voice selection."""
-    if any("\u3040" <= c <= "\u309f" or "\u30a0" <= c <= "\u30ff" for c in text):
+def _detect_lang_char(char: str) -> str | None:
+    """Detect language of a single character. Returns None for neutral chars."""
+    if "\u3040" <= char <= "\u309f" or "\u30a0" <= char <= "\u30ff":
         return "ja"
-    if any("\uac00" <= c <= "\ud7a3" for c in text):
+    if "\uac00" <= char <= "\ud7a3":
         return "ko"
-    if any("\u4e00" <= c <= "\u9fff" for c in text):
+    if "\u4e00" <= char <= "\u9fff":
         return "zh-TW"
-    return "en"
+    return None
+
+
+def _segment_by_lang(text: str) -> list[tuple[str, str]]:
+    """Split text into segments by detected language.
+    Non-CJK chars attach to the current segment."""
+    segments = []
+    current_lang = None
+    current_text = []
+
+    for char in text:
+        lang = _detect_lang_char(char)
+        if lang is None:
+            # Non-CJK (English, numbers, punctuation, spaces) follow current segment
+            lang = current_lang if current_lang else "en"
+
+        if lang != current_lang and current_text:
+            seg = "".join(current_text)
+            if seg.strip():
+                segments.append((current_lang, seg))
+            current_text = []
+        current_lang = lang
+        current_text.append(char)
+
+    if current_text:
+        seg = "".join(current_text)
+        if seg.strip():
+            segments.append((current_lang, seg))
+
+    return segments
 
 
 def text_to_speech(text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
@@ -407,26 +436,37 @@ def text_to_speech(text: str, lang: str = "zh-TW") -> tuple[bytes, str] | None:
         import asyncio
         import edge_tts
 
-        detected = _detect_lang(text)
-        voices = _EDGE_TTS_VOICES.get(detected, ["zh-TW-HsiaoChenNeural"])
-        voice = random.choice(voices)
+        segments = _segment_by_lang(text)
+        if not segments:
+            return None
 
-        async def _synth():
-            communicate = edge_tts.Communicate(text[:500], voice)
+        async def _synth_one(seg_text: str, seg_lang: str) -> bytes | None:
+            voices = _EDGE_TTS_VOICES.get(seg_lang, ["zh-TW-HsiaoChenNeural"])
+            voice = random.choice(voices)
+            communicate = edge_tts.Communicate(seg_text[:500], voice)
             buf = io.BytesIO()
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     buf.write(chunk["data"])
-            return buf.getvalue()
+            data = buf.getvalue()
+            return data if len(data) > 100 else None
 
-        audio_bytes = asyncio.run(_synth())
+        async def _synth_all():
+            parts = []
+            for seg_lang, seg_text in segments:
+                data = await _synth_one(seg_text, seg_lang)
+                if data:
+                    parts.append(data)
+            return b"".join(parts) if parts else None
+
+        audio_bytes = asyncio.run(_synth_all())
         if audio_bytes and len(audio_bytes) > 100:
-            logger.info("TTS success: voice=%s detected=%s text_len=%d bytes=%d", voice, detected, len(text), len(audio_bytes))
+            logger.info("TTS success: segments=%d text_len=%d bytes=%d", len(segments), len(text), len(audio_bytes))
             return audio_bytes, "audio/mpeg"
-        logger.warning("TTS empty audio: voice=%s detected=%s", voice, detected)
+        logger.warning("TTS empty audio: segments=%d", len(segments))
         return None
     except Exception as exc:
-        logger.warning("TTS failed: voice=%s detected=%s error=%s", voice, detected, exc)
+        logger.warning("TTS failed: %s", exc)
         return None
 
 
