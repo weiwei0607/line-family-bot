@@ -160,7 +160,7 @@ def handle_view_todos() -> str:
 def handle_complete_todo(member: str, text: str) -> str | None:
     content = re.sub(r'^完成待辦\s*', '', text).strip()
     if not content:
-        return None
+        return "請加上要完成的待辦內容！\n例：完成待辦 站起來走走"
     result = complete_todo_by_content(member, content)
     if result:
         return f"✅ 完成！「{result['content']}」從待辦清單移除 🎉"
