@@ -6,6 +6,10 @@ import os
 import logging
 import time
 import uuid
+import threading
+import hmac
+import hashlib
+import base64
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 import re
@@ -289,22 +293,45 @@ def daily_push():
     return "OK"
 
 
+def _verify_signature(body: str, signature: str) -> bool:
+    """Fast local signature check — no network, no exceptions."""
+    secret = os.environ.get("LINE_CHANNEL_SECRET", "")
+    if not secret or not signature:
+        return False
+    expected = base64.b64encode(
+        hmac.new(secret.encode(), body.encode(), hashlib.sha256).digest()
+    ).decode()
+    return hmac.compare_digest(signature, expected)
+
+
+def _dispatch_webhook(body: str, signature: str):
+    """Process webhook events in a background thread."""
+    try:
+        handler.handle(body, signature)
+    except Exception as exc:
+        logger.error("Webhook processing error: %s", exc)
+        from utils import send_telegram_alert
+        send_telegram_alert(f"webhook error: {type(exc).__name__}: {str(exc)[:200]}")
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     signature = request.headers.get("X-Line-Signature", "")
     body = request.get_data(as_text=True)
 
+    # Fast local signature verification — return 400 before doing anything else
+    if not _verify_signature(body, signature):
+        return "Invalid signature", 400
+
     # Deduplication: skip duplicate webhook deliveries
-    import hashlib
     from tts_store import webhook_seen
     dedup_key = hashlib.sha256(body.encode()).hexdigest()[:32]
     if webhook_seen(dedup_key, ttl_seconds=60):
         return "OK", 200
 
-    try:
-        handler.handle(body, signature)
-    except InvalidSignatureError:
-        return "Invalid signature", 400
+    # Return 200 immediately so LINE doesn't time out (reply token = 30s)
+    # Process events in background thread
+    threading.Thread(target=_dispatch_webhook, args=(body, signature), daemon=True).start()
     return "OK"
 
 def _process_text_message(reply_token: str, text: str, source, member: str = ""):
