@@ -28,7 +28,8 @@ TZ = ZoneInfo("Asia/Taipei")
 # 建議維護頻率（用於提醒）
 SCHEDULE = {
     # 小白維護
-    "clean_dustbin":  {"days": 7,   "label": "洗集塵盒",       "icon": "🗑️",  "category": "小白"},
+    "empty_dustbin":  {"days": 7,   "label": "倒集塵盒",       "icon": "🗑️",  "category": "小白"},
+    "clean_dustbin":  {"days": 14,  "label": "洗集塵盒",       "icon": "🧼",  "category": "小白"},
     "clean_brush":    {"days": 14,  "label": "清理主刷",       "icon": "🌀",  "category": "小白"},
     "replace_brush":  {"days": 180, "label": "換主刷",         "icon": "🔄",  "category": "小白"},
     "replace_filter": {"days": 30,  "label": "換濾網",         "icon": "🫁",  "category": "小白"},
@@ -40,7 +41,8 @@ SCHEDULE = {
 
 # 自然語言關鍵字對應 action（正序 + 反序）
 KEYWORDS = {
-    "clean_dustbin":  ["洗集塵盒", "倒集塵盒", "清集塵盒", "洗塵盒", "倒垃圾",
+    "empty_dustbin":  ["倒集塵盒", "倒垃圾", "清集塵盒"],
+    "clean_dustbin":  ["洗集塵盒", "洗塵盒",
                        "集塵盒清洗", "集塵盒清理", "塵盒清洗", "集塵盒清"],
     "clean_brush":    ["清理主刷", "清主刷", "洗主刷", "清理滾刷", "清滾刷",
                        "主刷清理", "滾刷清理", "主刷清洗", "滾刷清洗"],
