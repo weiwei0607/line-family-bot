@@ -380,13 +380,17 @@ def check_reminders():
 
         member = t["member"]
         content = t["content"]
+        created_by = t.get("created_by", "")
+        # 語音內容：把「我」換成創建者，讓被提醒人知道是幫誰做事
+        voice_content = content.replace("我", created_by) if created_by else content
+
         if reminded == 0:
             msg = f"🔔 提醒時間到！\n📌 {member}：{content}"
-            voice_text = f"提醒時間到！{member}，{content}！"
+            voice_text = f"提醒時間到！{member}，{voice_content}！"
         else:
             bells = "🔔" * (reminded + 1)
             msg = f"{bells} 還沒完成喔！\n📌 {member}：{content}\n完成後傳「完成待辦 {content[:10]}」"
-            voice_text = f"{member}，{content}還沒完成喔！快去做！"
+            voice_text = f"{member}，{voice_content}還沒完成喔！快去做！"
 
         push_messages(group_id, [{"type": "text", "text": msg}])
 
