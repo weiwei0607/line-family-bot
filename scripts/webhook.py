@@ -233,7 +233,12 @@ def handle_ai_mention(reply_token: str, text: str, member: str = ""):
 
     question = m.group(1).strip()
     _memory.record(member or "家人", question)
+    _dg2 = os.environ.get("LINE_GROUP_ID", "")
+    if _dg2:
+        push_messages(_dg2, [{"type": "text", "text": f"[D2] ai_mention called, question={question!r}"}])
     if handle_fun(reply_token, None, question):
+        if _dg2:
+            push_messages(_dg2, [{"type": "text", "text": f"[D2] handle_fun('{question}') returned True ← 卡這"}])
         return True
 
     ctx = _memory.format_for_ai()
