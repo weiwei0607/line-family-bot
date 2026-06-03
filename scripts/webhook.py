@@ -244,6 +244,8 @@ def handle_ai_mention(reply_token: str, text: str, member: str = ""):
         + f"\n\n{member or '家人'}：{question}"
     )
     answer = call_ai(prompt)
+    if not answer:
+        answer = "😵 AI 腦子轉不動了，稍後再試試～"
     _memory.record("小花" if m_xh else "機器人", answer)
     reply(reply_token, answer)
     return True
