@@ -300,9 +300,11 @@ def translate_text(text: str, target_lang: str = "zh-TW", source_lang: str = "au
             params={"q": text[:500], "langpair": f"{src}|{tgt}"},
             timeout=8,
         )
-        result = r.json().get("responseData", {}).get("translatedText", "")
-        if result and result not in ("NO QUERY SPECIFIED", text) and not result.upper().startswith("PLEASE"):
-            return result
+        r_json = r.json()
+        if r_json.get("responseStatus") == 200:
+            result = r_json.get("responseData", {}).get("translatedText", "")
+            if result and result not in ("NO QUERY SPECIFIED", text):
+                return result
     except Exception as _exc:
         logger.warning("API error: %s", _exc)
 
