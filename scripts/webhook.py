@@ -642,6 +642,12 @@ def handle_message(event: MessageEvent):
 
     member = resolve_member(user_id) if user_id else ""
 
+    # DEBUG
+    _grp = os.environ.get("LINE_GROUP_ID", "")
+    _has_mention = bool(hasattr(event.message, "mention") and event.message.mention)
+    if _grp and text.startswith("小花"):
+        push_messages(_grp, [{"type": "text", "text": f"[D] text={text!r} mention={_has_mention} member={member!r}"}])
+
     # 被 @ 提及時，先試指令，再 AI（Groq 優先）
     if hasattr(event.message, "mention") and event.message.mention:
         clean = re.sub(r"^@?\S+\s*", "", text).strip() or text
