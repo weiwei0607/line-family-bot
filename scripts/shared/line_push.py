@@ -38,7 +38,9 @@ def _get_configuration():
 def _reply_messages(reply_token: str, messages: list):
     """Use requests directly to avoid urllib3 hanging issues in LINE Bot SDK."""
     if not reply_token or not messages:
+        logger.warning("_reply_messages skipped: empty reply_token or messages")
         return
+    logger.info("_reply_messages start, reply_token=%s... len=%s", reply_token[:20] if reply_token else None, len(str(messages)))
     try:
         resp = _retry_http(
             lambda: requests.post(
