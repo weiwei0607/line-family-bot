@@ -469,7 +469,7 @@ def get_last_week_points() -> dict[str, float]:
         date_str, member, _, pts = r[0], r[1], r[2], r[3]
         if week_start <= date_str <= week_end:
             try:
-                totals[member] = totals.get(member, 0.0) + float(pts)
+                totals[member] = round(totals.get(member, 0.0) + float(pts), 2)
             except ValueError:
                 pass
     return totals
@@ -505,7 +505,7 @@ def get_weekly_points() -> dict[str, float]:
         date_str, member, _, pts = r[0], r[1], r[2], r[3]
         if date_str >= week_start:
             try:
-                totals[member] = totals.get(member, 0.0) + float(pts)
+                totals[member] = round(totals.get(member, 0.0) + float(pts), 2)
             except ValueError:
                 pass
     _sc_set("weekly_points", totals)
