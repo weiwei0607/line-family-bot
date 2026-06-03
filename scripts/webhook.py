@@ -259,8 +259,11 @@ def debug_env():
         "LINE_GROUP_ID_set": bool(os.environ.get("LINE_GROUP_ID")),
         "LINE_GROUP_ID_prefix": os.environ.get("LINE_GROUP_ID", "")[:4],
         "LINE_CHANNEL_ACCESS_TOKEN_set": bool(os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")),
+        "LINE_CHANNEL_SECRET_set": bool(os.environ.get("LINE_CHANNEL_SECRET")),
         "GOOGLE_REFRESH_TOKEN_set": bool(os.environ.get("GOOGLE_REFRESH_TOKEN")),
         "FAMILY_SHEET_ID_set": bool(os.environ.get("FAMILY_SHEET_ID")),
+        "TELEGRAM_BOT_TOKEN_set": bool(os.environ.get("TELEGRAM_BOT_TOKEN")),
+        "TELEGRAM_CHAT_ID_set": bool(os.environ.get("TELEGRAM_CHAT_ID")),
     }
 
 
@@ -522,16 +525,18 @@ def webhook():
     signature = request.headers.get("X-Line-Signature", "")
     body = request.get_data(as_text=True)
 
-    # DEBUG: log every webhook hit to Telegram
+    # DEBUG: push to LINE group when webhook is hit (bypass Telegram)
     try:
         import json as _json
         _parsed = _json.loads(body)
         _events = _parsed.get("events", [])
         _first = _events[0] if _events else {}
-        _msg = _first.get("message", {}).get("text", "")[:30] if _first else "(no event)"
+        _etype = _first.get("type", "?") if _first else "empty"
+        _msg = _first.get("message", {}).get("text", "")[:20] if _first else ""
         _sig_ok = _verify_signature(body, signature)
-        from utils import send_telegram_alert
-        send_telegram_alert(f"[webhook] sig_ok={_sig_ok} events={len(_events)} text={_msg!r}")
+        _group = os.environ.get("LINE_GROUP_ID", "")
+        if _group:
+            push_messages(_group, [{"type": "text", "text": f"[DEBUG] webhook hit: type={_etype} sig={_sig_ok} text={_msg!r}"}])
     except Exception:
         pass
 
