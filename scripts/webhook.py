@@ -299,11 +299,6 @@ def daily_push():
     if not cron_secret or not token or token != cron_secret:
         abort(403)
 
-    # Idempotency: atomically check-and-set
-    from tts_store import cron_try_mark_done
-    if not cron_try_mark_done("daily_push"):
-        return "Already done today", 200
-
     from sheets import get_members, get_chores, get_weekly_points
     from api_helpers import format_weather_block
 
@@ -311,51 +306,65 @@ def daily_push():
     if not group_id:
         return "LINE_GROUP_ID not set", 500
 
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        f_members = ex.submit(get_members)
-        f_pts     = ex.submit(get_weekly_points)
-        f_chores  = ex.submit(get_chores)
-        members = f_members.result()
-        pts     = f_pts.result()
-        chores  = f_chores.result()
-    low_pts = [m for m in members if pts.get(m, 0) < POINTS_THRESHOLD]
+    # ── 先準備內容、推送訊息，最後才標記 done（避免冷啟動超時導致「標了沒發」）──
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            f_members = ex.submit(get_members)
+            f_pts     = ex.submit(get_weekly_points)
+            f_chores  = ex.submit(get_chores)
+            members = f_members.result()
+            pts     = f_pts.result()
+            chores  = f_chores.result()
+        low_pts = [m for m in members if pts.get(m, 0) < POINTS_THRESHOLD]
 
-    lines = ["☀️ 早安！家管助理日報\n"]
-    lines.append(format_weather_block())
-    lines.append("")
-    if chores:
-        lines.append(f"📋 今日待完成家事（共 {len(chores)} 項）：")
-        for c in chores[:8]:
-            lines.append(f"  • {c['name']}（{c['points']}點）")
-    else:
-        lines.append("🎉 今日家事全部完成！大家辛苦了！")
-    lines.append("")
-    if low_pts:
-        lines.append("⚠️ 本週點數還不夠的成員：")
-        for m in low_pts:
-            lines.append(f"  {m}：目前 {pts.get(m,0)} 點（目標 {POINTS_THRESHOLD} 點）")
-        lines.append("\n快去完成家事累積點數吧！💪")
-    else:
-        lines.append("✅ 大家本週點數都達標了，棒棒！🎉")
-    lines.append("\n輸入「家事清單」查看待完成家事")
-    text_body = "\n".join(lines)
+        lines = ["☀️ 早安！家管助理日報\n"]
+        lines.append(format_weather_block())
+        lines.append("")
+        if chores:
+            lines.append(f"📋 今日待完成家事（共 {len(chores)} 項）：")
+            for c in chores[:8]:
+                lines.append(f"  • {c['name']}（{c['points']}點）")
+        else:
+            lines.append("🎉 今日家事全部完成！大家辛苦了！")
+        lines.append("")
+        if low_pts:
+            lines.append("⚠️ 本週點數還不夠的成員：")
+            for m in low_pts:
+                lines.append(f"  {m}：目前 {pts.get(m,0)} 點（目標 {POINTS_THRESHOLD} 點）")
+            lines.append("\n快去完成家事累積點數吧！💪")
+        else:
+            lines.append("✅ 大家本週點數都達標了，棒棒！🎉")
+        lines.append("\n輸入「家事清單」查看待完成家事")
+        text_body = "\n".join(lines)
 
-    # 先送文字
-    push_messages(group_id, [{"type": "text", "text": text_body[:4900]}])
+        # 先送文字
+        push_messages(group_id, [{"type": "text", "text": text_body[:4900]}])
 
-    # 再送 TTS 語音（早安問候）
-    base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    if base_url:
-        greeting = f"早安！今天天氣{'不錯，出門記得防曬！' if '晴' in text_body else '要注意，出門帶傘喔！'}"
-        tts_result = text_to_speech(greeting, "zh-TW")
-        if tts_result:
-            audio_bytes, mime = tts_result
-            fname = save_tts_audio(audio_bytes, mime)
-            audio_url = f"{base_url}/tts/{fname}"
-            duration = min(len(greeting) * 300 + 1000, 30000)
-            push_messages(group_id, [{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
+        # 再送 TTS 語音（早安問候）
+        base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+        if base_url:
+            greeting = f"早安！今天天氣{'不錯，出門記得防曬！' if '晴' in text_body else '要注意，出門帶傘喔！'}"
+            tts_result = text_to_speech(greeting, "zh-TW")
+            if tts_result:
+                audio_bytes, mime = tts_result
+                fname = save_tts_audio(audio_bytes, mime)
+                audio_url = f"{base_url}/tts/{fname}"
+                duration = min(len(greeting) * 300 + 1000, 30000)
+                push_messages(group_id, [{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
 
+    except Exception as exc:
+        logger.exception("daily_push failed: %s", exc)
+        try:
+            from utils import send_telegram_alert
+            send_telegram_alert(f"daily_push failed: {type(exc).__name__}: {exc}")
+        except Exception:
+            pass
+        return f"Error: {exc}", 500
+
+    # 推送成功後才標記 done
+    from tts_store import cron_try_mark_done
+    cron_try_mark_done("daily_push")
     return "OK"
 
 
