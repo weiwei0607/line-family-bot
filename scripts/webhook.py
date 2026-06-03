@@ -297,6 +297,33 @@ def test_ai():
     return {"result": result or "(empty)", "groq_set": groq_key_set, "gemini_set": gemini_key_set}
 
 
+@app.route("/test_timeout")
+def test_timeout():
+    """Test if requests timeout works correctly."""
+    import time
+    start = time.time()
+    try:
+        requests.post("https://httpbin.org/delay/20", timeout=15)
+        return {"status": "no_timeout", "elapsed": time.time() - start}
+    except requests.Timeout:
+        return {"status": "timeout_ok", "elapsed": round(time.time() - start, 1)}
+    except Exception as exc:
+        return {"status": f"error_{type(exc).__name__}", "elapsed": round(time.time() - start, 1)}
+
+
+@app.route("/test_push")
+def test_push():
+    """Test if push_messages works."""
+    grp = os.environ.get("LINE_GROUP_ID", "")
+    if not grp:
+        return {"status": "no_group_id", "pushed": False}
+    try:
+        push_messages(grp, [{"type": "text", "text": "🔧 這是 family bot 的測試 push，請忽略"}])
+        return {"status": "pushed", "group_id": grp[:10] + "..."}
+    except Exception as exc:
+        return {"status": f"push_failed_{type(exc).__name__}", "error": str(exc)[:100]}
+
+
 @app.route("/")
 @app.route("/health")
 def health():
