@@ -17,13 +17,31 @@ POINTS_THRESHOLD = int(os.environ.get("POINTS_THRESHOLD", "5"))
 
 
 def handle_chores(reply_token: str, member: str, text: str) -> bool:
-    """處理家事相關指令"""
-    m = re.match(r"^(完成|做了|做好了|完成了)\s*(.+)", text)
+    """處理家事相關指令（支援多行與結尾分數標記）"""
+    m = re.match(r"^(完成|做了|做好了|完成了)\s*(.*)", text, re.DOTALL)
     if m:
         raw = m.group(2).strip()
-        chore_names = [n for n in re.split(r'[\s、，,]+', raw) if n]
         who = member or "不知道誰"
         successes, capped_list, not_found = [], [], []
+
+        if raw:
+            # 支援多行：按行拆分，移除純數字/空行，並去掉結尾分數標記（如「早餐 1」）
+            lines = [line.strip() for line in raw.splitlines() if line.strip()]
+            chore_names = []
+            for line in lines:
+                cleaned = re.sub(r'\s+\d+(?:\.\d+)?$', '', line).strip()
+                if cleaned and not re.match(r'^\d+(?:\.\d+)?$', cleaned):
+                    chore_names.append(cleaned)
+        else:
+            chore_names = []
+
+        if not chore_names:
+            reply(reply_token,
+                  "請在「完成」後面加上家事名稱，例如：\n"
+                  "完成 掃地\n"
+                  "或一次列多項：\n"
+                  "完成\n早餐\n午餐\n洗鍋")
+            return True
 
         for chore_name in chore_names:
             result = complete_chore(chore_name, who)
