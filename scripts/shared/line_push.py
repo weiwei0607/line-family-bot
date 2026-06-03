@@ -43,7 +43,8 @@ def reply_text(reply_token: str, text: str):
                 ReplyMessageRequest(
                     reply_token=reply_token,
                     messages=[TextMessage(text=text[:4900])],
-                )
+                ),
+                _request_timeout=15,
             )
     except Exception as exc:
         logger.warning("reply_text failed (falling back to push): %s", exc)
@@ -69,7 +70,8 @@ def reply_image(reply_token: str, image_url: str, fallback_text: str = "圖片�
                         original_content_url=image_url,
                         preview_image_url=image_url,
                     )],
-                )
+                ),
+                _request_timeout=15,
             )
     except Exception as exc:
         logger.warning("reply_image failed: %s", exc)
@@ -87,7 +89,8 @@ def reply_audio(reply_token: str, audio_url: str, duration: int = 5000, fallback
                         original_content_url=audio_url,
                         duration=duration,
                     )],
-                )
+                ),
+                _request_timeout=15,
             )
     except Exception as exc:
         logger.warning("reply_audio failed: %s", exc)
@@ -105,7 +108,8 @@ def reply_image_with_text(reply_token: str, image_url: str, text: str):
                         ImageMessage(original_content_url=image_url, preview_image_url=image_url),
                         TextMessage(text=text[:4900]),
                     ],
-                )
+                ),
+                _request_timeout=15,
             )
     except Exception as exc:
         logger.warning("reply_image_with_text failed (falling back to push): %s", exc)
