@@ -125,9 +125,12 @@ def _retry_http(fn, max_retries=3, backoff=2):
 
 def push_messages(to: str, messages: list):
     if not to or not messages:
+        logger.warning("push_messages skipped: empty to or messages")
+        print(f"[LINE_PUSH] skipped: empty to or messages", flush=True)
         return
+    print(f"[LINE_PUSH] start to={to[:20]}... len={len(str(messages))}", flush=True)
     try:
-        _retry_http(
+        resp = _retry_http(
             lambda: requests.post(
                 "https://api.line.me/v2/bot/message/push",
                 headers={
@@ -138,7 +141,10 @@ def push_messages(to: str, messages: list):
                 timeout=30,
             )
         )
+        print(f"[LINE_PUSH] status={resp.status_code} to={to[:20]}...", flush=True)
+        logger.info("push_messages status=%s to=%s...", resp.status_code, to[:20])
     except Exception as exc:
+        print(f"[LINE_PUSH] failed: {type(exc).__name__}: {exc}", flush=True)
         logger.warning("push_messages failed: %s", exc)
         _alert_admin(f"LINE push 失敗: {exc}")
 

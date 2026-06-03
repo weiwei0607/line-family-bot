@@ -730,17 +730,14 @@ def handle_message(event: MessageEvent):
             logger.exception("[小花快捷路徑] error: %s", exc)
             _xiaohua_answer = f"😵 小花這邊出了點狀況：{type(exc).__name__}，請稍後再試 🔧"
 
-        # 雙保險：先 reply，再 push（防止 reply timeout 導致沈默）
+        # 直接使用 push（reply 在 Render 上會不明原因 hang 住）
+        target_id = group_id or _grp or user_id
+        logger.info("[小花快捷路徑] pushing to target_id=%s", target_id)
         try:
-            reply(reply_token, _xiaohua_answer)
-            logger.info("[小花快捷路徑] reply sent")
+            push_messages(target_id, [{"type": "text", "text": _xiaohua_answer}])
+            logger.info("[小花快捷路徑] push sent to %s", target_id)
         except Exception as exc:
-            logger.warning("[小花快捷路徑] reply failed: %s", exc)
-            try:
-                push_messages(group_id, [{"type": "text", "text": _xiaohua_answer}])
-                logger.info("[小花快捷路徑] push fallback sent to %s", group_id)
-            except Exception as push_exc:
-                logger.error("[小花快捷路徑] push fallback also failed: %s", push_exc)
+            logger.error("[小花快捷路徑] push failed: %s", exc)
         return
 
     # 被 @ 提及時，先試指令，再 AI（Groq 優先）
