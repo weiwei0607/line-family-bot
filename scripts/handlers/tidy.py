@@ -107,7 +107,7 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
 
             if member_debt.get(area, 0) <= 0:
                 area_desc = "自己的地方" if area == "自己" else "家裡"
-            rejected.append(f"• {line}（本週沒有欠收拾{area_desc}）")
+                rejected.append(f"• {line}（本週沒有欠收拾{area_desc}）")
                 continue
 
             makeup_area = f"補{area}"

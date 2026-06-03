@@ -22,6 +22,7 @@ _MAX_MSG_LEN = 300
 _EPHEMERAL_TTL_HOURS = 2
 _SHEETS_MAX_ROWS = 500
 _MAX_GROUPS = 20           # 限制同時存在的群組緩衝區數量
+_TAB_ENSURED = False       # 只在第一次寫入時確認 tab 存在
 
 # 每個 group_id 一個獨立 deque，用 OrderedDict 實現 LRU 淘汰
 _buffers: OrderedDict[str, deque] = OrderedDict()
@@ -79,9 +80,11 @@ def record_ephemeral(speaker: str, message: str):
 
 
 def _save_one(ts: str, speaker: str, message: str, gid: str):
+    global _TAB_ENSURED
     try:
         from sheets import _append, _ensure_tab
-        _ensure_tab(_TAB)
+        if not _TAB_ENSURED:
+            _TAB_ENSURED = bool(_ensure_tab(_TAB))
         _append(_TAB, [ts, speaker, message[:_MAX_MSG_LEN], gid])
     except Exception as exc:
         logger.warning("memory._save_one failed: %s", exc)
