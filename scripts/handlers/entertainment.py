@@ -4,9 +4,11 @@ Drinks, movies, NASA APOD.
 """
 
 import re
+import os
 from api_helpers import (
     get_cocktail, get_movie, get_streaming, get_nasa_apod,
     smart_translate, call_ai, QUOTA_MSG,
+    compress_image_for_line, save_apod_image,
 )
 from line_push import reply_text as reply, reply_image_with_text
 
@@ -118,7 +120,14 @@ def _handle_entertainment(reply_token: str, text: str) -> bool:
             )
             caption = f"🔭 {title_zh}（{apod['date']}）\n\n{explain_zh}"
             if apod["media_type"] == "image" and apod.get("url"):
-                reply_image_with_text(reply_token, apod["url"], caption)
+                img_bytes = compress_image_for_line(apod["url"])
+                if img_bytes:
+                    fname = save_apod_image(img_bytes)
+                    base_url = os.environ.get("RENDER_EXTERNAL_URL", "https://line-family-bot-ump0.onrender.com")
+                    hosted_url = f"{base_url}/apod/{fname}"
+                    reply_image_with_text(reply_token, hosted_url, caption)
+                else:
+                    reply(reply_token, caption + f"\n\n🔭 {apod['url']}")
             else:
                 reply(reply_token, caption + (f"\n\n▶️ {apod['url']}" if apod.get("url") else ""))
         else:

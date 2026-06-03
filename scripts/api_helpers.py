@@ -707,6 +707,55 @@ def get_tts_audio(filename: str) -> tuple[bytes, str] | None:
         logger.warning("API error: %s", _exc)
     return None
 
+# ── APOD 圖片壓縮暫存 ────────────────────────────
+
+_APOD_DIR = "/tmp/apod_files"
+os.makedirs(_APOD_DIR, exist_ok=True)
+
+def compress_image_for_line(url: str, max_bytes: int = 950_000) -> bytes | None:
+    """下載圖片並壓縮成 JPEG，確保低於 LINE 1MB 限制。"""
+    try:
+        import io
+        from PIL import Image
+        r = requests.get(url, timeout=20)
+        if r.status_code != 200:
+            return None
+        img = Image.open(io.BytesIO(r.content))
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        for quality in [85, 70, 55, 40]:
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality, optimize=True)
+            if buf.tell() <= max_bytes:
+                return buf.getvalue()
+        # 仍超過則縮圖
+        while img.width > 512:
+            img = img.resize((img.width // 2, img.height // 2), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=70, optimize=True)
+            if buf.tell() <= max_bytes:
+                return buf.getvalue()
+        return None
+    except Exception as exc:
+        logger.warning("compress_image_for_line failed: %s", exc)
+        return None
+
+def save_apod_image(img_bytes: bytes) -> str:
+    fname = f"apod_{int(time.time()*1000)}.jpg"
+    with open(os.path.join(_APOD_DIR, fname), "wb") as f:
+        f.write(img_bytes)
+    # 只保留最新 5 張
+    files = sorted(
+        [fn for fn in os.listdir(_APOD_DIR) if fn.startswith("apod_")],
+        key=lambda fn: os.path.getmtime(os.path.join(_APOD_DIR, fn)),
+    )
+    for old in files[:-5]:
+        try:
+            os.remove(os.path.join(_APOD_DIR, old))
+        except OSError:
+            pass
+    return fname
+
 # ── YouTube 搜尋（RapidAPI）───────────────────────
 
 def fetch_youtube(query: str) -> str:

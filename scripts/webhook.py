@@ -128,6 +128,18 @@ def serve_tts(filename: str):
     return Response(data[0], mimetype=data[1])
 
 
+@app.route("/apod/<filename>")
+def serve_apod(filename: str):
+    import re
+    from flask import send_file
+    if not re.match(r'^apod_\d+\.jpg$', filename):
+        abort(400)
+    path = f"/tmp/apod_files/{filename}"
+    if not os.path.exists(path):
+        abort(404)
+    return send_file(path, mimetype="image/jpeg")
+
+
 # ─── 指令處理 ─────────────────────────────────
 
 
