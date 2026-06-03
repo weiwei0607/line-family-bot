@@ -689,24 +689,31 @@ def handle_message(event: MessageEvent):
 
     # 小花快捷路徑（暫時繞過 _process_text_message 除錯）
     if text.startswith("小花") and not _has_mention:
+        _xiaohua_answer = ""
         try:
             question = text[2:].strip()
             logger.info("[小花快捷路徑] question=%r member=%r", question, member)
             if question:
                 persona = "你叫小花，是這個家的AI助手，個性溫柔但偶爾小毒舌。用繁體中文回答，簡短有趣。"
-                ans = call_ai(persona + f"\n\n{member or '家人'}：{question}")
-                logger.info("[小花快捷路徑] call_ai result=%r", ans[:50] if ans else None)
-                reply(reply_token, ans if ans else "😵 腦子轉不動了～")
-                logger.info("[小花快捷路徑] reply sent")
+                _xiaohua_answer = call_ai(persona + f"\n\n{member or '家人'}：{question}") or "😵 腦子轉不動了～"
             else:
-                reply(reply_token, "叫我？🌸 說吧！")
-                logger.info("[小花快捷路徑] empty question reply sent")
+                _xiaohua_answer = "叫我？🌸 說吧！"
+            logger.info("[小花快捷路徑] answer=%r", _xiaohua_answer[:50])
         except Exception as exc:
             logger.exception("[小花快捷路徑] error: %s", exc)
+            _xiaohua_answer = f"😵 小花這邊出了點狀況：{type(exc).__name__}，請稍後再試 🔧"
+
+        # 雙保險：先 reply，再 push（防止 reply timeout 導致沈默）
+        try:
+            reply(reply_token, _xiaohua_answer)
+            logger.info("[小花快捷路徑] reply sent")
+        except Exception as exc:
+            logger.warning("[小花快捷路徑] reply failed: %s", exc)
             try:
-                reply(reply_token, f"😵 小花這邊出了點狀況：{type(exc).__name__}，請稍後再試 🔧")
-            except Exception:
-                pass
+                push_messages(group_id, [{"type": "text", "text": _xiaohua_answer}])
+                logger.info("[小花快捷路徑] push fallback sent to %s", group_id)
+            except Exception as push_exc:
+                logger.error("[小花快捷路徑] push fallback also failed: %s", push_exc)
         return
 
     # 被 @ 提及時，先試指令，再 AI（Groq 優先）
