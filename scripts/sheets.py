@@ -844,16 +844,22 @@ def get_today_tidy_type_count(member: str) -> dict[str, int]:
     }
 
 
-def get_tidy_debt(days: int = 7) -> dict[str, dict[str, int]]:
-    """回傳每人最近 N 天欠收拾次數，已用補收拾抵銷後的淨值。"""
-    logs = get_tidy_logs(days)
+def get_tidy_debt() -> dict[str, dict[str, int]]:
+    """回傳每人本週（週一到今天）欠收拾次數，已用補收拾抵銷後的淨值。"""
+    today = datetime.now(TW_TZ).date()
+    days_since_monday = today.weekday()   # 0=週一，6=週日
+    days_to_count = days_since_monday + 1  # 本週已過幾天（含今天）
+    week_start_str = (today - timedelta(days=days_since_monday)).strftime("%Y-%m-%d")
+
+    logs = get_tidy_logs(days_to_count + 1)  # 多抓一天避免 cutoff 邊界
     members = ["爸爸", "媽媽", "姊姊", "妹妹"]
     debt = {m: {"自己": 0, "公共": 0} for m in members}
     makeup = {m: {"自己": 0, "公共": 0} for m in members}
-    today = datetime.now(TW_TZ).date()
 
-    # 計算補收拾次數
-    for day_logs in logs.values():
+    # 計算補收拾次數（本週內）
+    for date_str, day_logs in logs.items():
+        if date_str < week_start_str:
+            continue
         for m in members:
             for e in day_logs.get(m, []):
                 if e["area"] == "補自己":
@@ -861,9 +867,11 @@ def get_tidy_debt(days: int = 7) -> dict[str, dict[str, int]]:
                 elif e["area"] == "補公共":
                     makeup[m]["公共"] += 1
 
-    # 計算原始欠債（不含補收拾）
-    for offset in range(days):
+    # 計算原始欠債（週一到今天每天各檢查一次）
+    for offset in range(days_to_count):
         date = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
+        if date < week_start_str:
+            continue
         day_logs = logs.get(date, {})
         for m in members:
             entries = day_logs.get(m, [])
@@ -885,7 +893,7 @@ def get_tidy_debt(days: int = 7) -> dict[str, dict[str, int]]:
 def format_tidy_summary() -> str:
     """格式化今天全家收拾紀錄 + 欠次提示"""
     logs = get_today_tidy_logs()
-    debt = get_tidy_debt(7)
+    debt = get_tidy_debt()
     lines = []
     if not logs:
         lines.append("今天還沒有人報備收拾紀錄喔！\n")
@@ -921,7 +929,9 @@ def format_tidy_summary() -> str:
                 lines.append(f"  {area_emoji} {e['content']}")
             lines.append("")
     # 欠次提示
-    lines.append("\n📊 本週欠收拾統計（自己10分鐘+公共10分鐘）")
+    today_wd = datetime.now(TW_TZ).weekday()
+    weekday_names = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"]
+    lines.append(f"\n📊 本週欠收拾統計（週一到{weekday_names[today_wd]}，共{today_wd + 1}天）")
     for member in ["爸爸", "媽媽", "姊姊", "妹妹"]:
         d = debt.get(member, {"自己": 0, "公共": 0})
         if d["自己"] == 0 and d["公共"] == 0:

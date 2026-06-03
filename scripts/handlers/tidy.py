@@ -84,7 +84,7 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
         if not member or member not in _VALID_MEMBERS:
             member = "家人"
 
-        debt = get_tidy_debt(7)
+        debt = get_tidy_debt()
         member_debt = dict(debt.get(member, {"自己": 0, "公共": 0}))  # local copy
 
         lines_input = [l.strip() for l in raw_content.splitlines() if l.strip()]
@@ -200,7 +200,7 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
             parts.append("⚠️ 維護提醒\n" + reminders)
 
         if already_done:
-            debt = get_tidy_debt(7)
+            debt = get_tidy_debt()
             member_debt = debt.get(member, {"自己": 0, "公共": 0})
             skip_lines = []
             for area, content in already_done:
