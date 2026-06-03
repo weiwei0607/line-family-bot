@@ -252,20 +252,6 @@ def handle_ai_mention(reply_token: str, text: str, member: str = ""):
 
 # ─── Webhook 入口 ─────────────────────────────
 
-@app.route("/debug_env")
-def debug_env():
-    """暫時診斷用：確認 Render 上的關鍵 env 是否有設定"""
-    return {
-        "LINE_GROUP_ID_set": bool(os.environ.get("LINE_GROUP_ID")),
-        "LINE_GROUP_ID_prefix": os.environ.get("LINE_GROUP_ID", "")[:4],
-        "LINE_CHANNEL_ACCESS_TOKEN_set": bool(os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")),
-        "LINE_CHANNEL_SECRET_set": bool(os.environ.get("LINE_CHANNEL_SECRET")),
-        "GOOGLE_REFRESH_TOKEN_set": bool(os.environ.get("GOOGLE_REFRESH_TOKEN")),
-        "FAMILY_SHEET_ID_set": bool(os.environ.get("FAMILY_SHEET_ID")),
-        "TELEGRAM_BOT_TOKEN_set": bool(os.environ.get("TELEGRAM_BOT_TOKEN")),
-        "TELEGRAM_CHAT_ID_set": bool(os.environ.get("TELEGRAM_CHAT_ID")),
-    }
-
 
 @app.route("/")
 @app.route("/health")
@@ -512,17 +498,10 @@ def _verify_signature(body: str, signature: str) -> bool:
 
 def _dispatch_webhook(body: str, signature: str):
     """Process webhook events in a background thread."""
-    _group = os.environ.get("LINE_GROUP_ID", "")
     try:
-        if _group:
-            push_messages(_group, [{"type": "text", "text": "[DEBUG2] dispatch started"}])
         handler.handle(body, signature)
-        if _group:
-            push_messages(_group, [{"type": "text", "text": "[DEBUG2] dispatch done"}])
     except Exception as exc:
         logger.error("Webhook processing error: %s", exc)
-        if _group:
-            push_messages(_group, [{"type": "text", "text": f"[DEBUG2] ERROR: {type(exc).__name__}: {str(exc)[:100]}"}])
         from utils import send_telegram_alert
         send_telegram_alert(f"webhook error: {type(exc).__name__}: {str(exc)[:200]}")
 
@@ -531,21 +510,6 @@ def _dispatch_webhook(body: str, signature: str):
 def webhook():
     signature = request.headers.get("X-Line-Signature", "")
     body = request.get_data(as_text=True)
-
-    # DEBUG: push to LINE group when webhook is hit (bypass Telegram)
-    try:
-        import json as _json
-        _parsed = _json.loads(body)
-        _events = _parsed.get("events", [])
-        _first = _events[0] if _events else {}
-        _etype = _first.get("type", "?") if _first else "empty"
-        _msg = _first.get("message", {}).get("text", "")[:20] if _first else ""
-        _sig_ok = _verify_signature(body, signature)
-        _group = os.environ.get("LINE_GROUP_ID", "")
-        if _group:
-            push_messages(_group, [{"type": "text", "text": f"[DEBUG] webhook hit: type={_etype} sig={_sig_ok} text={_msg!r}"}])
-    except Exception:
-        pass
 
     # Fast local signature verification — return 400 before doing anything else
     if not _verify_signature(body, signature):
