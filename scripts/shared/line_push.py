@@ -39,11 +39,12 @@ def _reply_messages(reply_token: str, messages: list):
     """Use requests directly to avoid urllib3 hanging issues in LINE Bot SDK."""
     if not reply_token or not messages:
         logger.warning("_reply_messages skipped: empty reply_token or messages")
+        print(f"[LINE_REPLY] skipped: empty reply_token or messages", flush=True)
         return
     import socket
     old_timeout = socket.getdefaulttimeout()
     socket.setdefaulttimeout(15)
-    logger.info("_reply_messages start, reply_token=%s... len=%s", reply_token[:20] if reply_token else None, len(str(messages)))
+    print(f"[LINE_REPLY] start reply_token={reply_token[:8]}... len={len(str(messages))}", flush=True)
     try:
         resp = _retry_http(
             lambda: requests.post(
@@ -56,9 +57,9 @@ def _reply_messages(reply_token: str, messages: list):
                 timeout=15,
             )
         )
-        logger.info("LINE reply status=%s len=%s", resp.status_code, len(str(messages)))
+        print(f"[LINE_REPLY] status={resp.status_code} len={len(str(messages))}", flush=True)
     except Exception as exc:
-        logger.warning("_reply_messages failed: %s", exc)
+        print(f"[LINE_REPLY] failed: {type(exc).__name__}: {exc}", flush=True)
         raise
     finally:
         socket.setdefaulttimeout(old_timeout)
