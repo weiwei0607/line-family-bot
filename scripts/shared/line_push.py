@@ -19,6 +19,15 @@ _LINE_GROUP_ID = os.environ.get("LINE_GROUP_ID", "")
 _configuration = None
 
 
+def _alert_admin(msg: str) -> None:
+    """Notify admin via Telegram (best-effort)."""
+    try:
+        from shared.alerts import send_telegram_alert
+        send_telegram_alert(msg, prefix="🏠 家管助理 Alert")
+    except Exception:
+        pass
+
+
 def _get_configuration():
     global _configuration
     if _configuration is None:
@@ -39,7 +48,14 @@ def reply_text(reply_token: str, text: str):
     except Exception as exc:
         logger.warning("reply_text failed (falling back to push): %s", exc)
         if _LINE_GROUP_ID:
-            push_text(_LINE_GROUP_ID, text)
+            try:
+                push_text(_LINE_GROUP_ID, text)
+            except Exception as push_exc:
+                logger.error("reply+push both failed: %s", push_exc)
+                _alert_admin(f"LINE reply+push 皆失敗: {push_exc}\n原文: {text[:100]}")
+        else:
+            logger.error("reply failed and no LINE_GROUP_ID for push fallback")
+            _alert_admin(f"LINE reply 失敗且無 GROUP_ID: {exc}\n原文: {text[:100]}")
 
 
 def reply_image(reply_token: str, image_url: str, fallback_text: str = "圖片發送失敗"):
@@ -128,6 +144,7 @@ def push_messages(to: str, messages: list):
         )
     except Exception as exc:
         logger.warning("push_messages failed: %s", exc)
+        _alert_admin(f"LINE push 失敗: {exc}")
 
 
 def push_text(to: str, text: str):

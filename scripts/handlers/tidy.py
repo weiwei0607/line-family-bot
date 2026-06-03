@@ -141,11 +141,20 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
             header = f"✅ 已記錄 {len(tidy_records) + len(vacuum_records)} 項！\n\n"
             body = "\n\n".join(parts)
             footer = f"\n\n👤 紀錄人：{member}\n傳「收拾」查看今天全家紀錄"
-            reply(reply_token, header + body + footer)
+            try:
+                reply(reply_token, header + body + footer)
+            except Exception as exc:
+                logger.exception("reply tidy summary failed: %s", exc)
         elif errors:
-            reply(reply_token, "❌ 記錄失敗，請稍後再試")
+            try:
+                reply(reply_token, "❌ 記錄失敗，請稍後再試")
+            except Exception as exc:
+                logger.exception("reply tidy error failed: %s", exc)
         else:
-            reply(reply_token, "沒有偵測到可記錄的內容 😅")
+            try:
+                reply(reply_token, "沒有偵測到可記錄的內容 😅")
+            except Exception as exc:
+                logger.exception("reply tidy empty failed: %s", exc)
         return True
 
     return False
