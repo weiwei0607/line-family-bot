@@ -250,12 +250,7 @@ def handle_ai_mention(reply_token: str, text: str, member: str = ""):
 
     try:
         _memory.record(member or "家人", question)
-        _dg2 = os.environ.get("LINE_GROUP_ID", "")
-        if _dg2:
-            push_messages(_dg2, [{"type": "text", "text": f"[D2] ai_mention called, question={question!r}"}])
         if handle_fun(reply_token, None, question):
-            if _dg2:
-                push_messages(_dg2, [{"type": "text", "text": f"[D2] handle_fun('{question}') returned True ← 卡這"}])
             return True
 
         ctx = _memory.format_for_ai()
@@ -279,12 +274,7 @@ def handle_ai_mention(reply_token: str, text: str, member: str = ""):
             + (f"\n\n{img_desc}" if img_desc else "")
             + f"\n\n{member or '家人'}：{question}"
         )
-        _dg = os.environ.get("LINE_GROUP_ID", "")
-        if _dg:
-            push_messages(_dg, [{"type": "text", "text": f"[D2] handle_ai_mention reached, calling AI for: {question!r}"}])
         answer = call_ai(prompt)
-        if _dg:
-            push_messages(_dg, [{"type": "text", "text": f"[D2] call_ai result: {answer[:50]!r}"}])
         if not answer:
             answer = "😵 AI 腦子轉不動了，稍後再試試～"
         _memory.record("小花" if m_xh else "機器人", answer)
@@ -300,8 +290,16 @@ def handle_ai_mention(reply_token: str, text: str, member: str = ""):
 # ─── Webhook 入口 ─────────────────────────────
 
 
+def _check_cron_auth() -> bool:
+    cron_secret = os.environ.get("CRON_SECRET", "")
+    token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    return bool(cron_secret and token and token == cron_secret)
+
+
 @app.route("/test_ai")
 def test_ai():
+    if not _check_cron_auth():
+        abort(403)
     from api_helpers import call_ai
     result = call_ai("用一句話說你是小花")
     groq_key_set = bool(os.environ.get("GROQ_API_KEY"))
@@ -311,8 +309,8 @@ def test_ai():
 
 @app.route("/test_timeout")
 def test_timeout():
-    """Test if requests timeout works correctly."""
-    import time
+    if not _check_cron_auth():
+        abort(403)
     start = time.time()
     try:
         requests.post("https://httpbin.org/delay/20", timeout=15)
@@ -325,7 +323,8 @@ def test_timeout():
 
 @app.route("/test_push")
 def test_push():
-    """Test if push_messages works."""
+    if not _check_cron_auth():
+        abort(403)
     grp = os.environ.get("LINE_GROUP_ID", "")
     if not grp:
         return {"status": "no_group_id", "pushed": False}
@@ -621,10 +620,6 @@ def _safe_handle_fun(reply_token, source, text, member):
 
 def _process_text_message(reply_token: str, text: str, source, member: str = "") -> bool:
     """處理文字訊息的核心邏輯（文字/語音轉文字共用）。回傳 True 表示已由指令處理。"""
-    if text.startswith("小花"):
-        _dg0 = os.environ.get("LINE_GROUP_ID", "")
-        if _dg0:
-            push_messages(_dg0, [{"type": "text", "text": f"[D_PROC] _process_text_message called, text={text!r}"}])
     try:
         # ── 待辦提醒 ──
         if text.startswith("提醒"):
@@ -644,24 +639,18 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
                 reply(reply_token, result)
                 return True
 
-        def _dbg(name, result):
-            if text.startswith("小花") and os.environ.get("LINE_GROUP_ID"):
-                if result:
-                    push_messages(os.environ["LINE_GROUP_ID"], [{"type":"text","text":f"[D3] {name}=True ← 卡這"}])
-            return result
-
         if (
-            _dbg("admin", handle_admin(reply_token, source, text)) or
-            _dbg("batch_log", handle_batch_log(reply_token, member, text)) or
-            _dbg("help", handle_help(reply_token, text)) or
-            _dbg("chores", handle_chores(reply_token, member, text)) or
-            _dbg("points", handle_points(reply_token, member, text)) or
-            _dbg("shopping", handle_shopping(reply_token, member, text)) or
-            _dbg("accounting", handle_accounting(reply_token, member, text)) or
-            _dbg("fine", handle_fine(reply_token, member, text)) or
-            _dbg("declutter", handle_declutter(reply_token, member, text)) or
-            _dbg("fun", _safe_handle_fun(reply_token, source, text, member)) or
-            _dbg("ai_mention", handle_ai_mention(reply_token, text, member))
+            handle_admin(reply_token, source, text) or
+            handle_batch_log(reply_token, member, text) or
+            handle_help(reply_token, text) or
+            handle_chores(reply_token, member, text) or
+            handle_points(reply_token, member, text) or
+            handle_shopping(reply_token, member, text) or
+            handle_accounting(reply_token, member, text) or
+            handle_fine(reply_token, member, text) or
+            handle_declutter(reply_token, member, text) or
+            _safe_handle_fun(reply_token, source, text, member) or
+            handle_ai_mention(reply_token, text, member)
         ):
             return True
 
