@@ -577,18 +577,24 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
                 reply(reply_token, result)
                 return True
 
+        def _dbg(name, result):
+            if text.startswith("小花") and os.environ.get("LINE_GROUP_ID"):
+                if result:
+                    push_messages(os.environ["LINE_GROUP_ID"], [{"type":"text","text":f"[D3] {name}=True ← 卡這"}])
+            return result
+
         if (
-            handle_admin(reply_token, source, text) or
-            handle_batch_log(reply_token, member, text) or
-            handle_help(reply_token, text) or
-            handle_chores(reply_token, member, text) or
-            handle_points(reply_token, member, text) or
-            handle_shopping(reply_token, member, text) or
-            handle_accounting(reply_token, member, text) or
-            handle_fine(reply_token, member, text) or
-            handle_declutter(reply_token, member, text) or
-            handle_fun(reply_token, source, text, member) or
-            handle_ai_mention(reply_token, text, member)
+            _dbg("admin", handle_admin(reply_token, source, text)) or
+            _dbg("batch_log", handle_batch_log(reply_token, member, text)) or
+            _dbg("help", handle_help(reply_token, text)) or
+            _dbg("chores", handle_chores(reply_token, member, text)) or
+            _dbg("points", handle_points(reply_token, member, text)) or
+            _dbg("shopping", handle_shopping(reply_token, member, text)) or
+            _dbg("accounting", handle_accounting(reply_token, member, text)) or
+            _dbg("fine", handle_fine(reply_token, member, text)) or
+            _dbg("declutter", handle_declutter(reply_token, member, text)) or
+            _dbg("fun", handle_fun(reply_token, source, text, member)) or
+            _dbg("ai_mention", handle_ai_mention(reply_token, text, member))
         ):
             return True
 
