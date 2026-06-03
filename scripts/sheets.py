@@ -845,18 +845,22 @@ def get_today_tidy_type_count(member: str) -> dict[str, int]:
 
 
 def get_tidy_debt() -> dict[str, dict[str, int]]:
-    """回傳每人本週（週一到今天）欠收拾次數，已用補收拾抵銷後的淨值。"""
+    """回傳每人本週還需收拾幾天。
+    = 過去已錯過天數（週一到今天）+ 本週剩餘天數（今天之後到週日）。
+    最少 = 剩餘天數（全勤時），最多 = 7（一天都沒做）。
+    """
     today = datetime.now(TW_TZ).date()
-    days_since_monday = today.weekday()   # 0=週一，6=週日
-    days_to_count = days_since_monday + 1  # 本週已過幾天（含今天）
+    days_since_monday = today.weekday()      # 0=週一，6=週日
+    days_elapsed = days_since_monday + 1     # 本週已過幾天（含今天）
+    remaining_days = 6 - days_since_monday   # 今天之後還剩幾天（週日=0）
     week_start_str = (today - timedelta(days=days_since_monday)).strftime("%Y-%m-%d")
 
-    logs = get_tidy_logs(days_to_count + 1)  # 多抓一天避免 cutoff 邊界
+    logs = get_tidy_logs(days_elapsed + 1)
     members = ["爸爸", "媽媽", "姊姊", "妹妹"]
-    debt = {m: {"自己": 0, "公共": 0} for m in members}
+    past_missed = {m: {"自己": 0, "公共": 0} for m in members}
     makeup = {m: {"自己": 0, "公共": 0} for m in members}
 
-    # 計算補收拾次數（本週內）
+    # 補收拾次數（本週內）
     for date_str, day_logs in logs.items():
         if date_str < week_start_str:
             continue
@@ -867,26 +871,26 @@ def get_tidy_debt() -> dict[str, dict[str, int]]:
                 elif e["area"] == "補公共":
                     makeup[m]["公共"] += 1
 
-    # 計算原始欠債（週一到今天每天各檢查一次）
-    for offset in range(days_to_count):
+    # 過去已錯過天數（週一到今天）
+    for offset in range(days_elapsed):
         date = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
         if date < week_start_str:
             continue
         day_logs = logs.get(date, {})
         for m in members:
             entries = day_logs.get(m, [])
-            has_self = any(e["area"] == "自己" for e in entries)
-            has_pub = any(e["area"] == "公共" for e in entries)
-            if not has_self:
-                debt[m]["自己"] += 1
-            if not has_pub:
-                debt[m]["公共"] += 1
+            if not any(e["area"] == "自己" for e in entries):
+                past_missed[m]["自己"] += 1
+            if not any(e["area"] == "公共" for e in entries):
+                past_missed[m]["公共"] += 1
 
-    # 用補收拾抵銷
+    # 總欠 = 過去錯過（扣補收拾）+ 後面還剩幾天
+    debt = {}
     for m in members:
-        debt[m]["自己"] = max(0, debt[m]["自己"] - makeup[m]["自己"])
-        debt[m]["公共"] = max(0, debt[m]["公共"] - makeup[m]["公共"])
-
+        debt[m] = {
+            "自己": max(0, past_missed[m]["自己"] - makeup[m]["自己"]) + remaining_days,
+            "公共": max(0, past_missed[m]["公共"] - makeup[m]["公共"]) + remaining_days,
+        }
     return debt
 
 
