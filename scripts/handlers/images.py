@@ -18,7 +18,7 @@ def _handle_images(reply_token: str, text: str) -> bool:
     Returns True if handled.
     """
     # ── 小花畫圖（Pollinations.ai，免費無限）──
-    m = re.match(r"^(?:小花畫|畫)\s+(.+)$", text)
+    m = re.match(r"^(?:小花畫|畫)\s*(.+)$", text)
     if m:
         prompt = m.group(1).strip()
         url = generate_image(prompt)
