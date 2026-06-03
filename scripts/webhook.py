@@ -119,7 +119,7 @@ MEMBER_SIGNS = {
 @app.route("/tts/<filename>")
 def serve_tts(filename: str):
     import re
-    if not re.match(r'^tts_\d+\.m4a$', filename):
+    if not re.match(r'^tts_\d+\.(m4a|mp3)$', filename):
         abort(400)
     data = get_tts_audio(filename)
     if not data:

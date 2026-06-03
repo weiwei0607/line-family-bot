@@ -668,7 +668,7 @@ _TTS_DIR = "/tmp/tts_files"
 os.makedirs(_TTS_DIR, exist_ok=True)
 
 def save_tts_audio(audio_bytes: bytes, mime_type: str = "audio/mpeg") -> str:
-    fname = f"tts_{int(time.time()*1000)}.m4a"
+    fname = f"tts_{int(time.time()*1000)}.mp3"
     # Save to filesystem (fast serve) AND SQLite (survives restarts)
     with open(os.path.join(_TTS_DIR, fname), "wb") as f:
         f.write(audio_bytes)
