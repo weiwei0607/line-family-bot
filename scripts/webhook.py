@@ -708,11 +708,8 @@ def handle_message(event: MessageEvent):
 
     member = resolve_member(user_id) if user_id else ""
 
-    # DEBUG
     _grp = os.environ.get("LINE_GROUP_ID", "")
     _has_mention = bool(hasattr(event.message, "mention") and event.message.mention)
-    if _grp and text.startswith("小花"):
-        push_messages(_grp, [{"type": "text", "text": f"[D] text={text!r} mention={_has_mention} member={member!r}"}])
 
     # 小花快捷路徑（暫時繞過 _process_text_message 除錯）
     if text.startswith("小花") and not _has_mention:
