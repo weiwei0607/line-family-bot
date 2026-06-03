@@ -257,7 +257,12 @@ def handle_ai_mention(reply_token: str, text: str, member: str = ""):
         + (f"\n\n{img_desc}" if img_desc else "")
         + f"\n\n{member or '家人'}：{question}"
     )
+    _dg = os.environ.get("LINE_GROUP_ID", "")
+    if _dg:
+        push_messages(_dg, [{"type": "text", "text": f"[D2] handle_ai_mention reached, calling AI for: {question!r}"}])
     answer = call_ai(prompt)
+    if _dg:
+        push_messages(_dg, [{"type": "text", "text": f"[D2] call_ai result: {answer[:50]!r}"}])
     if not answer:
         answer = "😵 AI 腦子轉不動了，稍後再試試～"
     _memory.record("小花" if m_xh else "機器人", answer)
