@@ -520,6 +520,19 @@ def webhook():
     signature = request.headers.get("X-Line-Signature", "")
     body = request.get_data(as_text=True)
 
+    # DEBUG: log every webhook hit to Telegram
+    try:
+        import json as _json
+        _parsed = _json.loads(body)
+        _events = _parsed.get("events", [])
+        _first = _events[0] if _events else {}
+        _msg = _first.get("message", {}).get("text", "")[:30] if _first else "(no event)"
+        _sig_ok = _verify_signature(body, signature)
+        from utils import send_telegram_alert
+        send_telegram_alert(f"[webhook] sig_ok={_sig_ok} events={len(_events)} text={_msg!r}")
+    except Exception:
+        pass
+
     # Fast local signature verification — return 400 before doing anything else
     if not _verify_signature(body, signature):
         return "Invalid signature", 400
