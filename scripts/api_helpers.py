@@ -608,7 +608,7 @@ def search_gif(query: str) -> dict | None:
         images = gif.get("images", {})
         return {
             "gif_url": images.get("original", {}).get("url", ""),
-            "still_url": images.get("original_still", {}).get("url", ""),
+            "still_url": images.get("downsized_still", {}).get("url", "") or images.get("original_still", {}).get("url", ""),
         }
     except Exception as e:
         logger.warning("[giphy] %s", e)
@@ -632,7 +632,7 @@ def get_trending_gif() -> dict | None:
             images = gif.get("images", {})
             return {
                 "gif_url": images.get("original", {}).get("url", ""),
-                "still_url": images.get("original_still", {}).get("url", ""),
+                "still_url": images.get("downsized_still", {}).get("url", "") or images.get("original_still", {}).get("url", ""),
             }
         except Exception as e:
             logger.warning("[giphy trending] %s", e)

@@ -400,7 +400,7 @@ def search_photo(query: str) -> str | None:
         photos = r.json().get("photos", [])
         if photos:
             photo = random.choice(photos[:5])
-            return photo["src"].get("large2x") or photo["src"].get("large")
+            return photo["src"].get("large") or photo["src"].get("medium")
     except Exception as e:
         logger.warning("[pexels] %s", e)
     return None
@@ -420,7 +420,7 @@ def get_curated_photo() -> str | None:
             photos = r.json().get("photos", [])
             if photos:
                 photo = random.choice(photos)
-                return photo["src"].get("large2x") or photo["src"].get("large")
+                return photo["src"].get("large") or photo["src"].get("medium")
         except Exception as e:
             logger.warning("[pexels curated] %s", e)
         return None
