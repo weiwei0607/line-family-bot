@@ -40,7 +40,7 @@ def _reply_messages(reply_token: str, messages: list):
     if not reply_token or not messages:
         return
     try:
-        _retry_http(
+        resp = _retry_http(
             lambda: requests.post(
                 "https://api.line.me/v2/bot/message/reply",
                 headers={
@@ -51,6 +51,7 @@ def _reply_messages(reply_token: str, messages: list):
                 timeout=15,
             )
         )
+        logger.info("LINE reply status=%s len=%s", resp.status_code, len(str(messages)))
     except Exception as exc:
         logger.warning("_reply_messages failed: %s", exc)
         raise
