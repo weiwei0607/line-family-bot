@@ -40,6 +40,9 @@ def _reply_messages(reply_token: str, messages: list):
     if not reply_token or not messages:
         logger.warning("_reply_messages skipped: empty reply_token or messages")
         return
+    import socket
+    old_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(15)
     logger.info("_reply_messages start, reply_token=%s... len=%s", reply_token[:20] if reply_token else None, len(str(messages)))
     try:
         resp = _retry_http(
@@ -57,6 +60,8 @@ def _reply_messages(reply_token: str, messages: list):
     except Exception as exc:
         logger.warning("_reply_messages failed: %s", exc)
         raise
+    finally:
+        socket.setdefaulttimeout(old_timeout)
 
 
 def reply_text(reply_token: str, text: str):
