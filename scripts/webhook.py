@@ -232,47 +232,56 @@ def handle_ai_mention(reply_token: str, text: str, member: str = ""):
         return False
 
     question = m.group(1).strip()
-    _memory.record(member or "家人", question)
-    _dg2 = os.environ.get("LINE_GROUP_ID", "")
-    if _dg2:
-        push_messages(_dg2, [{"type": "text", "text": f"[D2] ai_mention called, question={question!r}"}])
-    if handle_fun(reply_token, None, question):
-        if _dg2:
-            push_messages(_dg2, [{"type": "text", "text": f"[D2] handle_fun('{question}') returned True ← 卡這"}])
+    if not question:
+        reply(reply_token, "嗯？你想問什麼呢？😊")
         return True
 
-    ctx = _memory.format_for_ai()
-    img_desc = ""
-    if m_xh and any(k in question for k in ["圖", "看", "照片", "拍"]):
-        group_id = getattr(_memory._ctx, "group_id", "default")
-        img_desc = _analyze_group_images(group_id)
+    try:
+        _memory.record(member or "家人", question)
+        _dg2 = os.environ.get("LINE_GROUP_ID", "")
+        if _dg2:
+            push_messages(_dg2, [{"type": "text", "text": f"[D2] ai_mention called, question={question!r}"}])
+        if handle_fun(reply_token, None, question):
+            if _dg2:
+                push_messages(_dg2, [{"type": "text", "text": f"[D2] handle_fun('{question}') returned True ← 卡這"}])
+            return True
 
-    if m_xh:
-        persona = (
-            "你叫小花，是這個家的 AI 助手，個性溫柔但偶爾小毒舌，會用可愛的語氣說話。"
-            "你喜歡加 emoji 但不過分。你記得這個家發生過的事。"
-            "用繁體中文回答，簡短有趣。"
+        ctx = _memory.format_for_ai()
+        img_desc = ""
+        if m_xh and any(k in question for k in ["圖", "看", "照片", "拍"]):
+            group_id = getattr(_memory._ctx, "group_id", "default")
+            img_desc = _analyze_group_images(group_id)
+
+        if m_xh:
+            persona = (
+                "你叫小花，是這個家的 AI 助手，個性溫柔但偶爾小毒舌，會用可愛的語氣說話。"
+                "你喜歡加 emoji 但不過分。你記得這個家發生過的事。"
+                "用繁體中文回答，簡短有趣。"
+            )
+        else:
+            persona = "你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。"
+
+        prompt = (
+            persona
+            + (f"\n\n{ctx}" if ctx else "")
+            + (f"\n\n{img_desc}" if img_desc else "")
+            + f"\n\n{member or '家人'}：{question}"
         )
-    else:
-        persona = "你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。"
-
-    prompt = (
-        persona
-        + (f"\n\n{ctx}" if ctx else "")
-        + (f"\n\n{img_desc}" if img_desc else "")
-        + f"\n\n{member or '家人'}：{question}"
-    )
-    _dg = os.environ.get("LINE_GROUP_ID", "")
-    if _dg:
-        push_messages(_dg, [{"type": "text", "text": f"[D2] handle_ai_mention reached, calling AI for: {question!r}"}])
-    answer = call_ai(prompt)
-    if _dg:
-        push_messages(_dg, [{"type": "text", "text": f"[D2] call_ai result: {answer[:50]!r}"}])
-    if not answer:
-        answer = "😵 AI 腦子轉不動了，稍後再試試～"
-    _memory.record("小花" if m_xh else "機器人", answer)
-    reply(reply_token, answer)
-    return True
+        _dg = os.environ.get("LINE_GROUP_ID", "")
+        if _dg:
+            push_messages(_dg, [{"type": "text", "text": f"[D2] handle_ai_mention reached, calling AI for: {question!r}"}])
+        answer = call_ai(prompt)
+        if _dg:
+            push_messages(_dg, [{"type": "text", "text": f"[D2] call_ai result: {answer[:50]!r}"}])
+        if not answer:
+            answer = "😵 AI 腦子轉不動了，稍後再試試～"
+        _memory.record("小花" if m_xh else "機器人", answer)
+        reply(reply_token, answer)
+        return True
+    except Exception as exc:
+        logger.exception("handle_ai_mention error: %s", exc)
+        reply(reply_token, f"😵 小花這邊出了點狀況：{type(exc).__name__}，請稍後再試或叫姊姊來修我 🔧")
+        return True
 
 
 
@@ -573,6 +582,10 @@ def _safe_handle_fun(reply_token, source, text, member):
 
 def _process_text_message(reply_token: str, text: str, source, member: str = "") -> bool:
     """處理文字訊息的核心邏輯（文字/語音轉文字共用）。回傳 True 表示已由指令處理。"""
+    if text.startswith("小花"):
+        _dg0 = os.environ.get("LINE_GROUP_ID", "")
+        if _dg0:
+            push_messages(_dg0, [{"type": "text", "text": f"[D_PROC] _process_text_message called, text={text!r}"}])
     try:
         # ── 待辦提醒 ──
         if text.startswith("提醒"):
