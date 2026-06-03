@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # 從 vacuum_tracker 動態取得小白關鍵字，避免維護兩份
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from vacuum_tracker import KEYWORDS as _VT_KEYWORDS, SCHEDULE as _VT_SCHEDULE
+from vacuum_tracker import KEYWORDS as _VT_KEYWORDS, SCHEDULE as _VT_SCHEDULE, add_record as vac_add, _load_records, _days_since
 _VACUUM_KEYWORDS = {
     action: kws
     for action, kws in _VT_KEYWORDS.items()
@@ -39,7 +39,6 @@ def _match_vacuum_actions(line: str) -> list[str]:
 def _get_vacuum_reminders() -> str:
     """取得小白超期提醒簡訊，沒有則回傳空字串"""
     try:
-        from vacuum_tracker import _load_records, _days_since
         records = _load_records()
         alerts = []
         for action, s in _VT_SCHEDULE.items():
@@ -99,7 +98,6 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
                 # ── 記到小白維護紀錄（一行可能有多個動作）──
                 for action in actions:
                     try:
-                        from vacuum_tracker import add_record as vac_add
                         labels = vac_add(action, user=member or "家人", note="")
                         vacuum_records.extend(labels)
                     except Exception as exc:

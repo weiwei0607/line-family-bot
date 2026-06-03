@@ -10,6 +10,7 @@ import threading
 import hmac
 import hashlib
 import base64
+from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -52,6 +53,11 @@ from handlers import (
     handle_accounting,
     resolve_member,
 )
+from handlers.games import handle_pairing, handle_dice, handle_rps
+from handlers.todos import handle_add_todo, handle_view_todos, handle_complete_todo, handle_cancel_todo
+from handlers.vote import handle_vote
+from vacuum_tracker import handle as vacuum_handle
+from dispatch_fun import try_dispatch
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB max payload
@@ -135,19 +141,16 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
         return True
 
     # ── 小白（掃地機器人）維護紀錄 ──
-    from vacuum_tracker import handle as vacuum_handle
     reply_text = vacuum_handle(text, user=member or "家人")
     if reply_text:
         reply(reply_token, reply_text)
         return True
 
     # ── Simple dispatch (fast path for stateless commands) ──
-    from dispatch_fun import try_dispatch
     if try_dispatch(text, lambda t: reply(reply_token, t)):
         return True
 
     # ── 趣味互動（骰子、猜拳、配對）──
-    from handlers.games import handle_pairing, handle_dice, handle_rps
     if text.startswith("配對"):
         reply(reply_token, handle_pairing(text))
         return True
@@ -159,7 +162,6 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
         return True
 
     # ── 投票 ──
-    from handlers.vote import handle_vote
     vote_result = handle_vote(text, group_id, member)
     if vote_result is not None:
         reply(reply_token, vote_result)
@@ -552,7 +554,6 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
     """處理文字訊息的核心邏輯（文字/語音轉文字共用）。回傳 True 表示已由指令處理。"""
     try:
         # ── 待辦提醒 ──
-        from handlers.todos import handle_add_todo, handle_view_todos, handle_complete_todo, handle_cancel_todo
         if text.startswith("提醒"):
             reply(reply_token, handle_add_todo(member, text))
             return True
@@ -694,7 +695,6 @@ def handle_audio_message(event: MessageEvent):
         return
 
     # SSRF guard: only allow LINE content-provider domains
-    from urllib.parse import urlparse
     parsed = urlparse(audio_url)
     allowed_hosts = ("api-data.line.me", "data.line.me")
     if parsed.scheme != "https" or parsed.hostname not in allowed_hosts:
@@ -727,7 +727,6 @@ def handle_audio_message(event: MessageEvent):
 
     if not transcript and GEMINI_KEY:
         try:
-            import base64
             audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
             del audio_bytes  # free raw bytes; base64 copy is already made
             url = (
