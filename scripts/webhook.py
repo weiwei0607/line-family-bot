@@ -255,6 +255,15 @@ def handle_ai_mention(reply_token: str, text: str, member: str = ""):
 # ─── Webhook 入口 ─────────────────────────────
 
 
+@app.route("/test_ai")
+def test_ai():
+    from api_helpers import call_ai
+    result = call_ai("用一句話說你是小花")
+    groq_key_set = bool(os.environ.get("GROQ_API_KEY"))
+    gemini_key_set = bool(os.environ.get("GEMINI_API_KEY"))
+    return {"result": result or "(empty)", "groq_set": groq_key_set, "gemini_set": gemini_key_set}
+
+
 @app.route("/")
 @app.route("/health")
 def health():
