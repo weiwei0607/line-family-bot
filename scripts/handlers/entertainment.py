@@ -117,8 +117,8 @@ def _handle_entertainment(reply_token: str, text: str) -> bool:
                 f"翻成繁體中文，100字以內，保持有趣：{apod['explanation']}"
             )
             caption = f"🔭 {title_zh}（{apod['date']}）\n\n{explain_zh}"
-            if apod["media_type"] == "image" and apod.get("hdurl"):
-                reply_image_with_text(reply_token, apod["hdurl"], caption)
+            if apod["media_type"] == "image" and apod.get("url"):
+                reply_image_with_text(reply_token, apod["url"], caption)
             else:
                 reply(reply_token, caption + (f"\n\n▶️ {apod['url']}" if apod.get("url") else ""))
         else:
