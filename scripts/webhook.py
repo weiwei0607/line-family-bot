@@ -687,6 +687,18 @@ def handle_message(event: MessageEvent):
     if _grp and text.startswith("小花"):
         push_messages(_grp, [{"type": "text", "text": f"[D] text={text!r} mention={_has_mention} member={member!r}"}])
 
+    # 小花快捷路徑（暫時繞過 _process_text_message 除錯）
+    if text.startswith("小花") and not _has_mention:
+        from handlers.tidy import _handle_tidy as _ht
+        question = text[2:].strip()
+        if question:
+            persona = "你叫小花，是這個家的AI助手，個性溫柔但偶爾小毒舌。用繁體中文回答，簡短有趣。"
+            ans = call_ai(persona + f"\n\n{member or '家人'}：{question}")
+            reply(reply_token, ans if ans else "😵 腦子轉不動了～")
+        else:
+            reply(reply_token, "叫我？🌸 說吧！")
+        return
+
     # 被 @ 提及時，先試指令，再 AI（Groq 優先）
     if hasattr(event.message, "mention") and event.message.mention:
         clean = re.sub(r"^@?\S+\s*", "", text).strip() or text
