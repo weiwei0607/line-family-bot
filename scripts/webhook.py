@@ -556,6 +556,16 @@ def webhook():
     _webhook_pool.submit(_dispatch_webhook, body, signature)
     return "OK"
 
+def _safe_handle_fun(reply_token, source, text, member):
+    try:
+        return handle_fun(reply_token, source, text, member)
+    except Exception as exc:
+        _grp = os.environ.get("LINE_GROUP_ID", "")
+        if _grp:
+            push_messages(_grp, [{"type": "text", "text": f"[D_ERR] handle_fun crash: {type(exc).__name__}: {str(exc)[:100]}"}])
+        return False
+
+
 def _process_text_message(reply_token: str, text: str, source, member: str = "") -> bool:
     """處理文字訊息的核心邏輯（文字/語音轉文字共用）。回傳 True 表示已由指令處理。"""
     try:
@@ -593,7 +603,7 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
             _dbg("accounting", handle_accounting(reply_token, member, text)) or
             _dbg("fine", handle_fine(reply_token, member, text)) or
             _dbg("declutter", handle_declutter(reply_token, member, text)) or
-            _dbg("fun", handle_fun(reply_token, source, text, member)) or
+            _dbg("fun", _safe_handle_fun(reply_token, source, text, member)) or
             _dbg("ai_mention", handle_ai_mention(reply_token, text, member))
         ):
             return True
