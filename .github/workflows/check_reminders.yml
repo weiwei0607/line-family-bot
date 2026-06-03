@@ -2,7 +2,7 @@ name: Check Time-based Reminders
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # every 5 minutes
+    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'  # every 5 min, offset +2
   workflow_dispatch:
 
 jobs:
