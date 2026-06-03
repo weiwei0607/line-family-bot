@@ -9,7 +9,7 @@ import re
 import sys
 import logging
 from linebot.v3.messaging import ApiClient, MessagingApi
-from sheets import add_tidy_log, format_tidy_summary, _detect_area
+from sheets import add_tidy_log, format_tidy_summary, _detect_area, get_today_tidy_type_count, get_tidy_debt
 from line_push import reply_text as reply
 
 logger = logging.getLogger(__name__)
@@ -69,11 +69,10 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
             reply(reply_token, f"❌ 讀取收拾紀錄失敗：{type(exc).__name__}")
         return True
 
-    m_tidy = re.match(r"^(收拾|整理)\s*(.+)", text, re.DOTALL)
-    if m_tidy and m_tidy.group(2).strip() not in ["狀態", "紀錄", "多久", "狀況", "提醒"]:
-        raw_content = m_tidy.group(2).strip()
-
-        # 優先使用已解析的 member（限定有效成員），沒有再嘗試抓 LINE profile
+    # ── 補收拾（補記過去欠下的）──
+    m_makeup = re.match(r"^補收拾\s*(.+)", text, re.DOTALL)
+    if m_makeup:
+        raw_content = m_makeup.group(1).strip()
         _VALID_MEMBERS = {"爸爸", "媽媽", "姊姊", "妹妹"}
         if not member or member not in _VALID_MEMBERS:
             try:
@@ -85,17 +84,77 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
         if not member or member not in _VALID_MEMBERS:
             member = "家人"
 
-        # 按行拆分
-        lines = [line.strip() for line in raw_content.splitlines() if line.strip()]
-        tidy_records = []   # 家務紀錄
-        vacuum_records = [] # 小白紀錄
+        debt = get_tidy_debt(7)
+        member_debt = dict(debt.get(member, {"自己": 0, "公共": 0}))  # local copy
+
+        lines_input = [l.strip() for l in raw_content.splitlines() if l.strip()]
+        makeup_records = []
+        rejected = []
+
+        for line in lines_input:
+            area = _detect_area(line)
+            content = line
+            if area == "未分類":
+                if content.startswith("自己 ") or content.startswith("我的 "):
+                    area = "自己"; content = content[3:].strip()
+                elif content.startswith("公共 ") or content.startswith("公用 "):
+                    area = "公共"; content = content[3:].strip()
+                else:
+                    area = "自己"  # 預設
+
+            if area not in ("自己", "公共"):
+                area = "自己"
+
+            if member_debt.get(area, 0) <= 0:
+                rejected.append(f"• {line}（本週{area}沒有欠收拾）")
+                continue
+
+            makeup_area = f"補{area}"
+            try:
+                add_tidy_log(member, makeup_area, content)
+                member_debt[area] = max(0, member_debt[area] - 1)
+                makeup_records.append(f"📝 {content}（補{area}）")
+            except Exception as exc:
+                logger.exception("add_tidy_log makeup failed: %s", exc)
+                rejected.append(f"• {line}（記錄失敗）")
+
+        parts = []
+        if makeup_records:
+            parts.append("✅ 補收拾成功\n" + "\n".join(makeup_records))
+        if rejected:
+            parts.append("❌ 以下無法補記\n" + "\n".join(rejected))
+        reply(reply_token, ("\n\n".join(parts) or "沒有偵測到可補記的內容") +
+              f"\n\n👤 {member}｜傳「收拾」查看欠收拾統計")
+        return True
+
+    # ── 一般收拾 ──
+    m_tidy = re.match(r"^(收拾|整理)\s*(.+)", text, re.DOTALL)
+    if m_tidy and m_tidy.group(2).strip() not in ["狀態", "紀錄", "多久", "狀況", "提醒"]:
+        raw_content = m_tidy.group(2).strip()
+
+        _VALID_MEMBERS = {"爸爸", "媽媽", "姊姊", "妹妹"}
+        if not member or member not in _VALID_MEMBERS:
+            try:
+                with ApiClient(configuration) as api_client:
+                    profile = MessagingApi(api_client).get_profile(getattr(source, "user_id", ""))
+                    member = profile.display_name
+            except Exception as _exc:
+                logger.warning("Silent error: %s", _exc)
+        if not member or member not in _VALID_MEMBERS:
+            member = "家人"
+
+        # 取今天已有的紀錄次數（每類上限1次）
+        today_count = get_today_tidy_type_count(member)
+
+        lines_input = [line.strip() for line in raw_content.splitlines() if line.strip()]
+        tidy_records = []
+        vacuum_records = []
+        already_done = []
         errors = []
 
-        for line in lines:
+        for line in lines_input:
             actions = _match_vacuum_actions(line)
-
             if actions:
-                # ── 記到小白維護紀錄（一行可能有多個動作）──
                 for action in actions:
                     try:
                         labels = vac_add(action, user=member or "家人", note="")
@@ -103,56 +162,61 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
                     except Exception as exc:
                         logger.exception("vacuum add_record failed: %s", exc)
                         errors.append(line)
-            else:
-                # ── 記到 Google Sheets 收拾紀錄 ──
-                area = _detect_area(line)
-                content = line
-                if area == "未分類":
-                    if content.startswith("自己 ") or content.startswith("我的 "):
-                        area = "自己"
-                        content = content[3:].strip()
-                    elif content.startswith("公共 ") or content.startswith("公用 "):
-                        area = "公共"
-                        content = content[3:].strip()
+                continue
 
-                try:
-                    add_tidy_log(member, area, content)
-                    area_emoji = "🏠" if area == "自己" else "🛋" if area == "公共" else "📦"
-                    tidy_records.append(f"{area_emoji} {content}（{area}區域）")
-                except Exception as exc:
-                    logger.exception("add_tidy_log failed: %s", exc)
-                    errors.append(line)
+            area = _detect_area(line)
+            content = line
+            if area == "未分類":
+                if content.startswith("自己 ") or content.startswith("我的 "):
+                    area = "自己"; content = content[3:].strip()
+                elif content.startswith("公共 ") or content.startswith("公用 "):
+                    area = "公共"; content = content[3:].strip()
 
-        # 組裝回覆
+            # 每日上限檢查
+            if area in ("自己", "公共") and today_count.get(area, 0) >= 1:
+                already_done.append((area, content))
+                today_count[area] = today_count.get(area, 0) + 1  # 防同批次重複
+                continue
+
+            try:
+                add_tidy_log(member, area, content)
+                if area in ("自己", "公共"):
+                    today_count[area] = today_count.get(area, 0) + 1
+                area_emoji = "🏠" if area == "自己" else "🛋" if area == "公共" else "📦"
+                tidy_records.append(f"{area_emoji} {content}（{area}區域）")
+            except Exception as exc:
+                logger.exception("add_tidy_log failed: %s", exc)
+                errors.append(line)
+
         parts = []
         if tidy_records:
             parts.append("🧹 家務紀錄\n" + "\n".join(tidy_records))
         if vacuum_records:
             parts.append("🤖 小白維護\n" + "\n".join(vacuum_records))
 
-        # 超期提醒
         reminders = _get_vacuum_reminders()
         if reminders:
             parts.append("⚠️ 維護提醒\n" + reminders)
 
+        if already_done:
+            debt = get_tidy_debt(7)
+            member_debt = debt.get(member, {"自己": 0, "公共": 0})
+            skip_lines = []
+            for area, content in already_done:
+                has_debt = member_debt.get(area, 0) > 0
+                hint = f"（有欠收拾可傳「補收拾 {content}」補記）" if has_debt else "（今天不需要再記）"
+                skip_lines.append(f"• {content}{hint}")
+            parts.append(f"⚠️ 今天{'/'.join(set(a for a, _ in already_done))}已記過，以下略過\n" + "\n".join(skip_lines))
+
         if parts:
-            header = f"✅ 已記錄 {len(tidy_records) + len(vacuum_records)} 項！\n\n"
+            header = f"✅ 已記錄 {len(tidy_records) + len(vacuum_records)} 項！\n\n" if (tidy_records or vacuum_records) else ""
             body = "\n\n".join(parts)
-            footer = f"\n\n👤 紀錄人：{member}\n傳「收拾」查看今天全家紀錄"
-            try:
-                reply(reply_token, header + body + footer)
-            except Exception as exc:
-                logger.exception("reply tidy summary failed: %s", exc)
+            footer = f"\n\n👤 紀錄人：{member}｜傳「收拾」查看今天全家紀錄"
+            reply(reply_token, header + body + footer)
         elif errors:
-            try:
-                reply(reply_token, "❌ 記錄失敗，請稍後再試")
-            except Exception as exc:
-                logger.exception("reply tidy error failed: %s", exc)
+            reply(reply_token, "❌ 記錄失敗，請稍後再試")
         else:
-            try:
-                reply(reply_token, "沒有偵測到可記錄的內容 😅")
-            except Exception as exc:
-                logger.exception("reply tidy empty failed: %s", exc)
+            reply(reply_token, "沒有偵測到可記錄的內容 😅")
         return True
 
     return False

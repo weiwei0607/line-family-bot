@@ -834,12 +834,34 @@ def get_tidy_logs(days: int = 7) -> dict[str, dict[str, list[dict]]]:
     return result
 
 
+def get_today_tidy_type_count(member: str) -> dict[str, int]:
+    """回傳某成員今天各類型收拾次數，用於每日上限判斷。"""
+    logs = get_today_tidy_logs()
+    entries = logs.get(member, [])
+    return {
+        "自己": sum(1 for e in entries if e["area"] == "自己"),
+        "公共": sum(1 for e in entries if e["area"] == "公共"),
+    }
+
+
 def get_tidy_debt(days: int = 7) -> dict[str, dict[str, int]]:
-    """回傳每人最近 N 天欠收拾次數：{成員: {"自己": n, "公共": n}}"""
+    """回傳每人最近 N 天欠收拾次數，已用補收拾抵銷後的淨值。"""
     logs = get_tidy_logs(days)
     members = ["爸爸", "媽媽", "姊姊", "妹妹"]
     debt = {m: {"自己": 0, "公共": 0} for m in members}
+    makeup = {m: {"自己": 0, "公共": 0} for m in members}
     today = datetime.now(TW_TZ).date()
+
+    # 計算補收拾次數
+    for day_logs in logs.values():
+        for m in members:
+            for e in day_logs.get(m, []):
+                if e["area"] == "補自己":
+                    makeup[m]["自己"] += 1
+                elif e["area"] == "補公共":
+                    makeup[m]["公共"] += 1
+
+    # 計算原始欠債（不含補收拾）
     for offset in range(days):
         date = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
         day_logs = logs.get(date, {})
@@ -851,6 +873,12 @@ def get_tidy_debt(days: int = 7) -> dict[str, dict[str, int]]:
                 debt[m]["自己"] += 1
             if not has_pub:
                 debt[m]["公共"] += 1
+
+    # 用補收拾抵銷
+    for m in members:
+        debt[m]["自己"] = max(0, debt[m]["自己"] - makeup[m]["自己"])
+        debt[m]["公共"] = max(0, debt[m]["公共"] - makeup[m]["公共"])
+
     return debt
 
 
@@ -869,17 +897,27 @@ def format_tidy_summary() -> str:
             entries = logs[member]
             self_count = sum(1 for e in entries if e["area"] == "自己")
             pub_count = sum(1 for e in entries if e["area"] == "公共")
-            other_count = len(entries) - self_count - pub_count
+            makeup_count = sum(1 for e in entries if e["area"] in ("補自己", "補公共"))
+            other_count = len(entries) - self_count - pub_count - makeup_count
             badge = []
             if self_count:
                 badge.append(f"自己×{self_count}")
             if pub_count:
                 badge.append(f"公共×{pub_count}")
+            if makeup_count:
+                badge.append(f"補×{makeup_count}")
             if other_count:
                 badge.append(f"其他×{other_count}")
             lines.append(f"【{member}】{' / '.join(badge) if badge else '無紀錄'}")
             for e in entries:
-                area_emoji = "🏠" if e["area"] == "自己" else "🛋" if e["area"] == "公共" else "📦"
+                if e["area"] == "自己":
+                    area_emoji = "🏠"
+                elif e["area"] == "公共":
+                    area_emoji = "🛋"
+                elif e["area"] in ("補自己", "補公共"):
+                    area_emoji = "📝"
+                else:
+                    area_emoji = "📦"
                 lines.append(f"  {area_emoji} {e['content']}")
             lines.append("")
     # 欠次提示
@@ -895,7 +933,7 @@ def format_tidy_summary() -> str:
             if d["公共"]:
                 parts.append(f"公共欠{d['公共']}天")
             lines.append(f"⚠️ {member}：{' / '.join(parts)}")
-    lines.append("\n傳「收拾 [內容]」來記錄，例如：\n• 收拾 收了自己的書桌\n• 收拾 公共區域掃地")
+    lines.append("\n傳「收拾 [內容]」記錄今日（自己/公共各限1次）\n傳「補收拾 [內容]」補記過去欠下的（需有欠才能補）")
     return "\n".join(lines)
 
 

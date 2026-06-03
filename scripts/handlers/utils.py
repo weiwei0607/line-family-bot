@@ -5,6 +5,8 @@ Wikipedia, world time, country info, BMI, recipes, nutrition, calories, holidays
 
 import re
 from datetime import datetime as _dt
+from zoneinfo import ZoneInfo as _ZoneInfo
+_TW_TZ = _ZoneInfo("Asia/Taipei")
 from api_helpers import (
     get_wikipedia, get_world_time, get_country_info,
     search_recipes_by_ingredients, get_nutrition, get_calories_burned,
@@ -171,7 +173,7 @@ def _handle_utils(reply_token: str, text: str) -> bool:
             holidays = get_holidays(year=year, month=month, day=day)
             date_str = f"{month}/{day}"
         else:
-            now = _dt.now()
+            now = _dt.now(_TW_TZ)
             holidays = get_holidays()
             date_str = f"{now.month}/{now.day}"
         if holidays:
