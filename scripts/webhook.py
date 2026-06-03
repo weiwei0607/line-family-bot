@@ -331,7 +331,7 @@ def daily_push():
         if low_pts:
             lines.append("⚠️ 本週點數還不夠的成員：")
             for m in low_pts:
-                lines.append(f"  {m}：目前 {pts.get(m,0)} 點（目標 {POINTS_THRESHOLD} 點）")
+                lines.append(f"  {m}：目前 {round(pts.get(m,0), 1):g} 點（目標 {POINTS_THRESHOLD} 點）")
             lines.append("\n快去完成家事累積點數吧！💪")
         else:
             lines.append("✅ 大家本週點數都達標了，棒棒！🎉")
