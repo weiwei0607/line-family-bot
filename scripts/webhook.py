@@ -731,7 +731,8 @@ def handle_message(event: MessageEvent):
             _xiaohua_answer = f"😵 小花這邊出了點狀況：{type(exc).__name__}，請稍後再試 🔧"
 
         # 直接使用 push（reply 在 Render 上會不明原因 hang 住）
-        target_id = group_id or _grp or user_id
+        _real_group_id = getattr(event.source, "group_id", None) or getattr(event.source, "room_id", None)
+        target_id = _real_group_id or _grp or user_id
         logger.info("[小花快捷路徑] pushing to target_id=%s", target_id)
         try:
             push_messages(target_id, [{"type": "text", "text": _xiaohua_answer}])
