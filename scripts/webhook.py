@@ -512,10 +512,17 @@ def _verify_signature(body: str, signature: str) -> bool:
 
 def _dispatch_webhook(body: str, signature: str):
     """Process webhook events in a background thread."""
+    _group = os.environ.get("LINE_GROUP_ID", "")
     try:
+        if _group:
+            push_messages(_group, [{"type": "text", "text": "[DEBUG2] dispatch started"}])
         handler.handle(body, signature)
+        if _group:
+            push_messages(_group, [{"type": "text", "text": "[DEBUG2] dispatch done"}])
     except Exception as exc:
         logger.error("Webhook processing error: %s", exc)
+        if _group:
+            push_messages(_group, [{"type": "text", "text": f"[DEBUG2] ERROR: {type(exc).__name__}: {str(exc)[:100]}"}])
         from utils import send_telegram_alert
         send_telegram_alert(f"webhook error: {type(exc).__name__}: {str(exc)[:200]}")
 
