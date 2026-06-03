@@ -250,6 +250,18 @@ def handle_ai_mention(reply_token: str, text: str, member: str = ""):
 
 # ─── Webhook 入口 ─────────────────────────────
 
+@app.route("/debug_env")
+def debug_env():
+    """暫時診斷用：確認 Render 上的關鍵 env 是否有設定"""
+    return {
+        "LINE_GROUP_ID_set": bool(os.environ.get("LINE_GROUP_ID")),
+        "LINE_GROUP_ID_prefix": os.environ.get("LINE_GROUP_ID", "")[:4],
+        "LINE_CHANNEL_ACCESS_TOKEN_set": bool(os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")),
+        "GOOGLE_REFRESH_TOKEN_set": bool(os.environ.get("GOOGLE_REFRESH_TOKEN")),
+        "FAMILY_SHEET_ID_set": bool(os.environ.get("FAMILY_SHEET_ID")),
+    }
+
+
 @app.route("/")
 @app.route("/health")
 def health():
