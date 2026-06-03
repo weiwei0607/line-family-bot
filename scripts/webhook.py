@@ -207,10 +207,24 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
 
 
 _IS_XIAOHUA = re.compile(r"^@?小花\s*(.+)", re.IGNORECASE)
+_IS_XIAOHUA_ALONE = re.compile(r"^@?小花[！!～~？?。]*$", re.IGNORECASE)
 _IS_BOT     = re.compile(r"^@?(?:機器人|家管|bot|助理)\s*(.+)", re.IGNORECASE)
 
 def handle_ai_mention(reply_token: str, text: str, member: str = ""):
     """@小花 / @機器人 問問題（純文字觸發，非 LINE 正式 mention）"""
+    # 單獨叫名字：打招呼
+    if _IS_XIAOHUA_ALONE.match(text):
+        import random
+        greetings = [
+            "幹嘛～ 叫我做什麼 😏",
+            "有事嗎？說吧！🌸",
+            "在的在的～ 什麼事？",
+            "叫我？🌷",
+            "欸！我在！說～",
+        ]
+        reply(reply_token, random.choice(greetings))
+        return True
+
     m_xh = _IS_XIAOHUA.match(text)
     m_bot = _IS_BOT.match(text)
     m = m_xh or m_bot
