@@ -2,7 +2,7 @@ name: Daily Family Reminder
 
 on:
   schedule:
-    - cron: '0 22 * * *'  # 06:00 CST (UTC+8，前一天 22:00 UTC)
+    - cron: '30 22 * * *'  # 06:30 CST (UTC+8，前一天 22:30 UTC)
   workflow_dispatch:
 
 jobs:
