@@ -172,6 +172,10 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
                     area = "自己"; content = content[3:].strip()
                 elif content.startswith("公共 ") or content.startswith("公用 "):
                     area = "公共"; content = content[3:].strip()
+                else:
+                    # 真的分不出來，請使用者講清楚
+                    errors.append(f"• {line}（請標註「自己」或「公共」，例如：自己 {line}）")
+                    continue
 
             # 每日上限檢查
             if area in ("自己", "公共") and today_count.get(area, 0) >= 1:
@@ -184,13 +188,10 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
                 if area in ("自己", "公共"):
                     today_count[area] = today_count.get(area, 0) + 1
                 area_emoji = "🏠" if area == "自己" else "🛋" if area == "公共" else "📦"
-                if area == "未分類":
-                    tidy_records.append(f"{area_emoji} {content}")
-                else:
-                    tidy_records.append(f"{area_emoji} {content}（{area}區域）")
+                tidy_records.append(f"{area_emoji} {content}（{area}區域）")
             except Exception as exc:
                 logger.exception("add_tidy_log failed: %s", exc)
-                errors.append(line)
+                errors.append(f"• {line}（記錄失敗）")
 
         parts = []
         if tidy_records:

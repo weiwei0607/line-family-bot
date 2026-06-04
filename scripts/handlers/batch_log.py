@@ -78,8 +78,8 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
             if area != "未分類":
                 tidy_items.append((area, line))
             else:
-                # 5) 真的不知道這是啥，當未知家事 +1
-                chores.append((line, 1.0))
+                # 5) 家事也找不到、區域也分不出 → 請使用者講清楚
+                errors.append(f"• {line}（請標註「自己」或「公共」，例如：自己 {line}）")
 
     # 記錄收拾
     for area, content in tidy_items:
@@ -127,6 +127,10 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
         if capped_names:
             parts[-1] += f"\n⚠️ 已達上限略過：{'、'.join(capped_names)}"
         parts.append(summary)
+
+    # 無法分類的項目
+    if errors:
+        parts.append("❓ 以下項目分不出區域，請標註「自己」或「公共」\n" + "\n".join(errors))
 
     # 都沒有
     if not parts:
