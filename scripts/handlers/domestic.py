@@ -261,7 +261,7 @@ def handle_declutter(reply_token: str, member: str, text: str) -> bool:
         return True
 
     # 查待定清單
-    if text == "斷捨離清單":
+    if text in ["斷捨離清單", "待定", "待定清單"]:
         items = get_declutter_list(only_pending=True)
         if not items:
             reply(reply_token, "🎉 待定區是空的，家裡很清爽！")
