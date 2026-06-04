@@ -96,4 +96,11 @@ def main():
     print("Evening todo reminder sent.")
 
 
-main()
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        print(f"Evening todo reminder failed: {e}")
+        print(traceback.format_exc())
+        raise
