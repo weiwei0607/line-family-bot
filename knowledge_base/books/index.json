@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "description": "家庭書櫃索引：記錄家中所有書籍與筆記位置",
+  "books": [
+    {
+      "id": "thinking-fast-and-slow",
+      "title": "快思慢想",
+      "author": "Daniel Kahneman",
+      "category": "心理學",
+      "owner": "爸爸",
+      "status": "已筆記",
+      "note_file": "快思慢想.md",
+      "tags": ["決策", "認知偏誤", "行為經濟學"],
+      "added_date": "2026-06-01"
+    },
+    {
+      "id": "tipping-point",
+      "title": "引爆趨勢",
+      "author": "Malcolm Gladwell",
+      "category": "社會學",
+      "owner": "姊姊",
+      "status": "已筆記",
+      "note_file": "引爆趨勢.md",
+      "tags": ["流行", "傳播", "行銷"],
+      "added_date": "2026-06-04"
+    },
+    {
+      "id": "what-every-body-is-saying",
+      "title": "FBI教你讀心術",
+      "author": "Joe Navarro",
+      "category": "心理學",
+      "owner": "爸爸",
+      "status": "已筆記",
+      "note_file": "FBI教你讀心術.md",
+      "tags": ["肢體語言", "非語言溝通", "觀察力"],
+      "added_date": "2026-06-04"
+    },
+    {
+      "id": "dont-show-your-thoughts",
+      "title": "別讓人知道你怎麼想",
+      "author": "DaiGo",
+      "category": "心理學",
+      "owner": "媽媽",
+      "status": "已筆記",
+      "note_file": "別讓人知道你怎麼想.md",
+      "tags": ["讀心術", "操控", "人際關係"],
+      "added_date": "2026-06-04"
+    }
+  ]
+}

@@ -44,6 +44,7 @@ from handlers import (
     _handle_weather,
     handle_admin,
     handle_batch_log,
+    handle_book_command,
     handle_chores,
     handle_declutter,
     handle_fine,
@@ -676,6 +677,7 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
                 return True
 
         if (
+            handle_book_command(reply_token, text) or
             handle_admin(reply_token, source, text) or
             handle_batch_log(reply_token, member, text) or
             handle_help(reply_token, text) or
