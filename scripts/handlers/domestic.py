@@ -28,10 +28,33 @@ def handle_chores(reply_token: str, member: str, text: str) -> bool:
             # 支援多行：按行拆分，移除純數字/空行，並去掉結尾分數標記（如「早餐 1」）
             lines = [line.strip() for line in raw.splitlines() if line.strip()]
             chore_names = []
+            chores_sheet = get_chores()
+            known_names = {c["name"] for c in chores_sheet}
             for line in lines:
                 cleaned = re.sub(r'\s+\d+(?:\.\d+)?$', '', line).strip()
-                if cleaned and not re.match(r'^\d+(?:\.\d+)?$', cleaned):
-                    chore_names.append(cleaned)
+                if not cleaned or re.match(r'^\d+(?:\.\d+)?$', cleaned):
+                    continue
+                # 先嘗試整行匹配
+                matched = next(
+                    (c for c in chores_sheet if cleaned in c["name"] or c["name"] in cleaned),
+                    None,
+                )
+                if matched:
+                    chore_names.append(matched["name"])
+                else:
+                    # 整行匹配不到，嘗試按空格拆分，每個詞個別匹配
+                    words = cleaned.split()
+                    found_any = False
+                    for w in words:
+                        m = next(
+                            (c for c in chores_sheet if w in c["name"] or c["name"] in w),
+                            None,
+                        )
+                        if m:
+                            chore_names.append(m["name"])
+                            found_any = True
+                    if not found_any:
+                        chore_names.append(cleaned)
         else:
             chore_names = []
 
