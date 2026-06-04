@@ -148,6 +148,8 @@ def _append(tab, row):
             valueInputOption="USER_ENTERED",
             body={"values": [row]},
         ).execute()
+    # 自動創建不存在的 tab
+    _ensure_tab(tab)
     try:
         _retry_gapi(_call)
     except HttpError as e:
