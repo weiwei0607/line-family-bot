@@ -1,11 +1,11 @@
 """
 家庭書櫃知識庫 handler
 支援指令：
-  !找書 [關鍵字]     — 搜尋書名或作者
-  !筆記 [書名]       — 顯示某本書的筆記摘要
-  !書單              — 列出家庭書單
-  !推薦書 [主題]     — 根據主題推薦家中書籍
-  !新增書 [書名] [作者] [類別] — 添加新書到索引
+  找書 [關鍵字]     — 搜尋書名或作者
+  筆記 [書名]       — 顯示某本書的筆記摘要
+  書單              — 列出家庭書單
+  推薦書 [主題]     — 根據主題推薦家中書籍
+  新增書 [書名] [作者] [類別] — 添加新書到索引
 """
 from __future__ import annotations
 
@@ -136,14 +136,14 @@ def _find_book_by_title(title_query: str) -> Dict[str, Any] | None:
 # ─── Handler Functions ──────────────────────────────────────
 
 def handle_find_book(reply_token: str, text: str) -> bool:
-    """!找書 [關鍵字]"""
-    m = re.match(r"^!找書\s+(.+)", text)
+    """找書 [關鍵字]"""
+    m = re.match(r"^(?:!)?找書\s+(.+)", text)
     if not m:
         return False
     query = m.group(1).strip()
     results = _search_books(query)
     if not results:
-        reply(reply_token, f"📚 找不到「{query}」相關的書。試試其他關鍵字，或傳「!書單」查看全部。")
+        reply(reply_token, f"📚 找不到「{query}」相關的書。試試其他關鍵字，或傳「書單」查看全部。")
         return True
     lines = [f"📚 找到 {len(results)} 本相關書籍：\n"]
     for b in results:
@@ -158,14 +158,14 @@ def handle_find_book(reply_token: str, text: str) -> bool:
 
 
 def handle_book_note(reply_token: str, text: str) -> bool:
-    """!筆記 [書名]"""
-    m = re.match(r"^!筆記\s+(.+)", text)
+    """筆記 [書名]"""
+    m = re.match(r"^(?:!)?筆記\s+(.+)", text)
     if not m:
         return False
     title_query = m.group(1).strip()
     book = _find_book_by_title(title_query)
     if not book:
-        reply(reply_token, f"📚 找不到「{title_query}」。傳「!書單」查看我們家有什麼書。")
+        reply(reply_token, f"📚 找不到「{title_query}」。傳「書單」查看我們家有什麼書。")
         return True
 
     note_text = _load_note(book.get("note_file", ""))
@@ -186,13 +186,13 @@ def handle_book_note(reply_token: str, text: str) -> bool:
 
 
 def handle_book_list(reply_token: str, text: str) -> bool:
-    """!書單 — 列出家庭書單"""
-    if text != "!書單":
+    """書單 — 列出家庭書單"""
+    if text not in ["書單", "!書單"]:
         return False
     data = _load_index()
     books = data.get("books", [])
     if not books:
-        reply(reply_token, "📚 家庭書櫃還是空的。傳「!新增書 書名 作者 類別」開始建檔吧！")
+        reply(reply_token, "📚 家庭書櫃還是空的。傳「新增書 書名 作者 類別」開始建檔吧！")
         return True
 
     # 統計
@@ -215,14 +215,14 @@ def handle_book_list(reply_token: str, text: str) -> bool:
             lines.append(f"  {status} 《{b['title']}》{b.get('author','')} ({owner})")
         lines.append("")
 
-    lines.append("💡 傳「!找書 關鍵字」搜尋 | 「!筆記 書名」看摘要")
+    lines.append("💡 傳「找書 關鍵字」搜尋 | 「筆記 書名」看摘要")
     reply(reply_token, "\n".join(lines)[:1900])
     return True
 
 
 def handle_recommend_book(reply_token: str, text: str) -> bool:
-    """!推薦書 [主題]"""
-    m = re.match(r"^!推薦書\s+(.+)", text)
+    """推薦書 [主題]"""
+    m = re.match(r"^(?:!)?推薦書\s+(.+)", text)
     if not m:
         return False
     topic = m.group(1).strip()
@@ -244,7 +244,7 @@ def handle_recommend_book(reply_token: str, text: str) -> bool:
 
     scored.sort(key=lambda x: x[0], reverse=True)
     if not scored:
-        reply(reply_token, f"📚 沒找到「{topic}」相關的書。我們家目前的書單：\n傳「!書單」查看。")
+        reply(reply_token, f"📚 沒找到「{topic}」相關的書。我們家目前的書單：\n傳「書單」查看。")
         return True
 
     lines = [f"📚 為你推薦「{topic}」相關書籍：\n"]
@@ -258,13 +258,13 @@ def handle_recommend_book(reply_token: str, text: str) -> bool:
 
 
 def handle_add_book(reply_token: str, text: str) -> bool:
-    """!新增書 [書名] [作者] [類別]"""
-    m = re.match(r"^!新增書\s+(.+)", text)
+    """新增書 [書名] [作者] [類別]"""
+    m = re.match(r"^(?:!)?新增書\s+(.+)", text)
     if not m:
         return False
     parts = m.group(1).strip().split()
     if len(parts) < 2:
-        reply(reply_token, "📚 格式：!新增書 書名 作者 [類別]\n例：!新增書 原子習慣 James Clear 自我成長")
+        reply(reply_token, "📚 格式：新增書 書名 作者 [類別]\n例：新增書 原子習慣 James Clear 自我成長")
         return True
 
     title = parts[0]
@@ -277,7 +277,7 @@ def handle_add_book(reply_token: str, text: str) -> bool:
     # 檢查是否已存在
     for b in books:
         if b.get("title", "").lower() == title.lower():
-            reply(reply_token, f"📚 《{title}》已經在書櫃裡了。傳「!筆記 {title}」查看。")
+            reply(reply_token, f"📚 《{title}》已經在書櫃裡了。傳「筆記 {title}」查看。")
             return True
 
     # 產生安全檔名
@@ -448,14 +448,14 @@ def find_relevant_context(question: str, max_chars: int = 2500) -> str:
 # ─── 進階功能：讀書推薦與挑戰 ──────────────────────────────
 
 def handle_recent_reading(reply_token: str, text: str) -> bool:
-    """!最近讀什麼 — 推薦一本待讀或值得重讀的書"""
-    if text not in ["!最近讀什麼", "!推薦閱讀", "!讀什麼", "!下一本"]:
+    """最近讀什麼 — 推薦一本待讀或值得重讀的書"""
+    if text not in ["最近讀什麼", "!最近讀什麼", "推薦閱讀", "!推薦閱讀", "讀什麼", "!讀什麼", "下一本", "!下一本"]:
         return False
 
     data = _load_index()
     books = data.get("books", [])
     if not books:
-        reply(reply_token, "📚 書櫃還是空的。傳「!新增書」開始建檔吧！")
+        reply(reply_token, "📚 書櫃還是空的。傳「新增書」開始建檔吧！")
         return True
 
     import random
@@ -492,7 +492,7 @@ def handle_recent_reading(reply_token: str, text: str) -> bool:
         "",
         f"{status_msg}",
         "",
-        "💡 讀完記得整理筆記放進知識庫，傳「!筆記 書名」就能查到！",
+        "💡 讀完記得整理筆記放進知識庫，傳「筆記 書名」就能查到！",
     ])
 
     reply(reply_token, "\n".join(lines)[:1900])
@@ -500,14 +500,14 @@ def handle_recent_reading(reply_token: str, text: str) -> bool:
 
 
 def handle_reading_challenge(reply_token: str, text: str) -> bool:
-    """!讀書挑戰 — 生成本週閱讀挑戰"""
-    if text not in ["!讀書挑戰", "!閱讀挑戰", "!本週挑戰", "!讀書目標"]:
+    """讀書挑戰 — 生成本週閱讀挑戰"""
+    if text not in ["讀書挑戰", "!讀書挑戰", "閱讀挑戰", "!閱讀挑戰", "本週挑戰", "!本週挑戰", "讀書目標", "!讀書目標"]:
         return False
 
     data = _load_index()
     books = data.get("books", [])
     if not books:
-        reply(reply_token, "📚 書櫃還是空的，無法生成挑戰。傳「!新增書」開始吧！")
+        reply(reply_token, "📚 書櫃還是空的，無法生成挑戰。傳「新增書」開始吧！")
         return True
 
     import random
@@ -558,10 +558,10 @@ def handle_reading_challenge(reply_token: str, text: str) -> bool:
 
 def handle_reading_progress(reply_token: str, text: str, member: str = "") -> bool:
     """
-    !進度 [書名] [頁數/百分比] — 更新/查詢閱讀進度
-    例：!進度 快思慢想 50%  或  !進度 快思慢想 150/500  或  !進度 快思慢想
+    進度 [書名] [頁數/百分比] — 更新/查詢閱讀進度
+    例：進度 快思慢想 50%  或  進度 快思慢想 150/500  或  進度 快思慢想
     """
-    m = re.match(r"^!進度\s+(.+)", text)
+    m = re.match(r"^(?:!)?進度\s+(.+)", text)
     if not m:
         return False
 
@@ -586,7 +586,7 @@ def handle_reading_progress(reply_token: str, text: str, member: str = "") -> bo
             break
 
     if not book:
-        reply(reply_token, f"📚 找不到「{book_query}」。傳「!書單」查看我們家有什麼書。")
+        reply(reply_token, f"📚 找不到「{book_query}」。傳「書單」查看我們家有什麼書。")
         return True
 
     book_title = book["title"]
@@ -596,7 +596,7 @@ def handle_reading_progress(reply_token: str, text: str, member: str = "") -> bo
     # 模式 1：只有查詢（沒有進度值）
     if not progress_val:
         if not book_prog:
-            reply(reply_token, f"📖 《{book_title}》目前還沒有人記錄閱讀進度。\n\n傳「!進度 {book_title} 50%」來更新你的進度！")
+            reply(reply_token, f"📖 《{book_title}》目前還沒有人記錄閱讀進度。\n\n傳「進度 {book_title} 50%」來更新你的進度！")
             return True
 
         lines = [f"📖 《{book_title}》閱讀進度：\n"]
@@ -654,13 +654,13 @@ def handle_reading_progress(reply_token: str, text: str, member: str = "") -> bo
     _save_progress(prog_data)
 
     bar = "█" * int(percent / 10) + "░" * (10 - int(percent / 10))
-    reply(reply_token, f"✅ {member} 的《{book_title}》進度已更新！\n\n{bar} {percent}%\n\n傳「!進度 {book_title}」查看全家進度。")
+    reply(reply_token, f"✅ {member} 的《{book_title}》進度已更新！\n\n{bar} {percent}%\n\n傳「進度 {book_title}」查看全家進度。")
     return True
 
 
 def handle_my_progress(reply_token: str, text: str, member: str = "") -> bool:
-    """!我的進度 — 查詢自己的閱讀進度"""
-    if text != "!我的進度":
+    """我的進度 — 查詢自己的閱讀進度"""
+    if text not in ["我的進度", "!我的進度"]:
         return False
     if not member:
         member = "家人"
@@ -675,7 +675,7 @@ def handle_my_progress(reply_token: str, text: str, member: str = "") -> bool:
             my_books.append((pct, f"{bar} {pct}% — 《{book_title}》"))
 
     if not my_books:
-        reply(reply_token, f"📚 {member} 目前還沒有記錄任何閱讀進度。\n\n讀完書後傳「!進度 書名 50%」來記錄吧！")
+        reply(reply_token, f"📚 {member} 目前還沒有記錄任何閱讀進度。\n\n讀完書後傳「進度 書名 50%」來記錄吧！")
         return True
 
     my_books.sort(key=lambda x: x[0], reverse=True)
@@ -687,15 +687,15 @@ def handle_my_progress(reply_token: str, text: str, member: str = "") -> bool:
 
 
 def handle_family_progress(reply_token: str, text: str) -> bool:
-    """!大家讀多少 — 全家閱讀進度排行榜"""
-    if text not in ["!大家讀多少", "!全家進度", "!閱讀排行"]:
+    """大家讀多少 — 全家閱讀進度排行榜"""
+    if text not in ["大家讀多少", "!大家讀多少", "全家進度", "!全家進度", "閱讀排行", "!閱讀排行"]:
         return False
 
     prog_data = _load_progress()
     idx_data = _load_index()
 
     if not prog_data.get("progress"):
-        reply(reply_token, "📚 目前還沒有人記錄閱讀進度。\n\n快傳「!進度 書名 50%」開始記錄吧！")
+        reply(reply_token, "📚 目前還沒有人記錄閱讀進度。\n\n快傳「進度 書名 50%」開始記錄吧！")
         return True
 
     person_stats = {}
