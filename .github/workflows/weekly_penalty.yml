@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install google-auth google-auth-oauthlib google-api-python-client requests
+      - run: pip install google-auth google-auth-oauthlib google-api-python-client requests line-bot-sdk==3.12.0
       - run: python scripts/weekly_penalty.py
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.FAMILY_LINE_CHANNEL_ACCESS_TOKEN }}
