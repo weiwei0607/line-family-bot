@@ -184,7 +184,10 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
                 if area in ("自己", "公共"):
                     today_count[area] = today_count.get(area, 0) + 1
                 area_emoji = "🏠" if area == "自己" else "🛋" if area == "公共" else "📦"
-                tidy_records.append(f"{area_emoji} {content}（{area}區域）")
+                if area == "未分類":
+                    tidy_records.append(f"{area_emoji} {content}")
+                else:
+                    tidy_records.append(f"{area_emoji} {content}（{area}區域）")
             except Exception as exc:
                 logger.exception("add_tidy_log failed: %s", exc)
                 errors.append(line)
