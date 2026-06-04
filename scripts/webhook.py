@@ -687,7 +687,7 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
                 return True
 
         if (
-            handle_book_command(reply_token, text) or
+            handle_book_command(reply_token, text, member) or
             handle_admin(reply_token, source, text) or
             handle_batch_log(reply_token, member, text) or
             handle_help(reply_token, text) or

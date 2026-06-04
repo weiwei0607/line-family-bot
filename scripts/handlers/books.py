@@ -22,7 +22,28 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 _KB_DIR = os.path.join(_PROJECT_ROOT, "knowledge_base")
 _BOOKS_DIR = os.path.join(_KB_DIR, "books")
 _INDEX_PATH = os.path.join(_BOOKS_DIR, "index.json")
+_PROGRESS_PATH = os.path.join(_BOOKS_DIR, "reading_progress.json")
 
+
+
+def _load_progress() -> Dict[str, Any]:
+    """載入閱讀進度"""
+    try:
+        with open(_PROGRESS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"progress": {}}
+
+
+def _save_progress(data: Dict[str, Any]) -> bool:
+    """儲存閱讀進度"""
+    try:
+        with open(_PROGRESS_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as exc:
+        logger.warning("Failed to save progress: %s", exc)
+        return False
 
 def _load_index() -> Dict[str, Any]:
     """載入書單索引"""
@@ -531,8 +552,193 @@ def handle_reading_challenge(reply_token: str, text: str) -> bool:
     return True
 
 
+# ─── 閱讀進度追蹤 ─────────────────────────────────────────
+
+def handle_reading_progress(reply_token: str, text: str, member: str = "") -> bool:
+    """
+    !進度 [書名] [頁數/百分比] — 更新/查詢閱讀進度
+    例：!進度 快思慢想 50%  或  !進度 快思慢想 150/500  或  !進度 快思慢想
+    """
+    m = re.match(r"^!進度\s+(.+)", text)
+    if not m:
+        return False
+
+    args = m.group(1).strip().split()
+    if not args:
+        return False
+
+    # 嘗試解析：最後一個詞可能是進度標記
+    book_query = " ".join(args)
+    progress_val = ""
+    last = args[-1]
+    if "%" in last or "/" in last or (last.isdigit() and len(args) > 1):
+        progress_val = last
+        book_query = " ".join(args[:-1])
+
+    # 找書
+    data = _load_index()
+    book = None
+    for b in data.get("books", []):
+        if b.get("title", "").lower() == book_query.lower() or book_query.lower() in b.get("title", "").lower():
+            book = b
+            break
+
+    if not book:
+        reply(reply_token, f"📚 找不到「{book_query}」。傳「!書單」查看我們家有什麼書。")
+        return True
+
+    book_title = book["title"]
+    prog_data = _load_progress()
+    book_prog = prog_data.get("progress", {}).get(book_title, {})
+
+    # 模式 1：只有查詢（沒有進度值）
+    if not progress_val:
+        if not book_prog:
+            reply(reply_token, f"📖 《{book_title}》目前還沒有人記錄閱讀進度。\n\n傳「!進度 {book_title} 50%」來更新你的進度！")
+            return True
+
+        lines = [f"📖 《{book_title}》閱讀進度：\n"]
+        for person, info in sorted(book_prog.items()):
+            pct = info.get("percent", 0)
+            bar = "█" * int(pct / 10) + "░" * (10 - int(pct / 10))
+            page_info = ""
+            if info.get("page") and info.get("total"):
+                page_info = f"(第 {info['page']}/{info['total']} 頁) "
+            lines.append(f"{bar} {pct}% {page_info}— {person}")
+        reply(reply_token, "\n".join(lines)[:1900])
+        return True
+
+    # 模式 2：更新進度
+    if not member:
+        member = "家人"
+
+    percent = 0
+    page = 0
+    total = 0
+
+    if "%" in progress_val:
+        try:
+            percent = int(progress_val.replace("%", "").strip())
+        except ValueError:
+            reply(reply_token, "❌ 進度格式不對。請用「50%」或「150/300」")
+            return True
+    elif "/" in progress_val:
+        try:
+            parts = progress_val.split("/")
+            page = int(parts[0].strip())
+            total = int(parts[1].strip())
+            percent = min(100, int(page / total * 100)) if total > 0 else 0
+        except (ValueError, IndexError):
+            reply(reply_token, "❌ 進度格式不對。請用「50%」或「150/300」")
+            return True
+    elif progress_val.isdigit():
+        percent = min(100, int(progress_val))
+    else:
+        reply(reply_token, "❌ 進度格式不對。請用「50%」或「150/300」")
+        return True
+
+    if "progress" not in prog_data:
+        prog_data["progress"] = {}
+    if book_title not in prog_data["progress"]:
+        prog_data["progress"][book_title] = {}
+
+    from datetime import datetime as _dt
+    prog_data["progress"][book_title][member] = {
+        "percent": percent,
+        "page": page,
+        "total": total,
+        "last_update": _dt.now().strftime("%Y-%m-%d")
+    }
+    _save_progress(prog_data)
+
+    bar = "█" * int(percent / 10) + "░" * (10 - int(percent / 10))
+    reply(reply_token, f"✅ {member} 的《{book_title}》進度已更新！\n\n{bar} {percent}%\n\n傳「!進度 {book_title}」查看全家進度。")
+    return True
+
+
+def handle_my_progress(reply_token: str, text: str, member: str = "") -> bool:
+    """!我的進度 — 查詢自己的閱讀進度"""
+    if text != "!我的進度":
+        return False
+    if not member:
+        member = "家人"
+
+    prog_data = _load_progress()
+    my_books = []
+    for book_title, readers in prog_data.get("progress", {}).items():
+        if member in readers:
+            info = readers[member]
+            pct = info.get("percent", 0)
+            bar = "█" * int(pct / 10) + "░" * (10 - int(pct / 10))
+            my_books.append((pct, f"{bar} {pct}% — 《{book_title}》"))
+
+    if not my_books:
+        reply(reply_token, f"📚 {member} 目前還沒有記錄任何閱讀進度。\n\n讀完書後傳「!進度 書名 50%」來記錄吧！")
+        return True
+
+    my_books.sort(key=lambda x: x[0], reverse=True)
+    lines = [f"📖 {member} 的閱讀進度：\n"]
+    for _, line in my_books:
+        lines.append(line)
+    reply(reply_token, "\n".join(lines)[:1900])
+    return True
+
+
+def handle_family_progress(reply_token: str, text: str) -> bool:
+    """!大家讀多少 — 全家閱讀進度排行榜"""
+    if text not in ["!大家讀多少", "!全家進度", "!閱讀排行"]:
+        return False
+
+    prog_data = _load_progress()
+    idx_data = _load_index()
+
+    if not prog_data.get("progress"):
+        reply(reply_token, "📚 目前還沒有人記錄閱讀進度。\n\n快傳「!進度 書名 50%」開始記錄吧！")
+        return True
+
+    person_stats = {}
+    for book_title, readers in prog_data["progress"].items():
+        for person, info in readers.items():
+            if person not in person_stats:
+                person_stats[person] = {"books": 0, "total_percent": 0, "finished": 0}
+            person_stats[person]["books"] += 1
+            person_stats[person]["total_percent"] += info.get("percent", 0)
+            if info.get("percent", 0) >= 100:
+                person_stats[person]["finished"] += 1
+
+    lines = ["📚 全家閱讀進度排行榜\n"]
+    sorted_people = sorted(
+        person_stats.items(),
+        key=lambda x: (x[1]["finished"], x[1]["total_percent"] / max(x[1]["books"], 1)),
+        reverse=True
+    )
+
+    medals = ["🥇", "🥈", "🥉"]
+    for i, (person, stats) in enumerate(sorted_people):
+        medal = medals[i] if i < 3 else "  "
+        avg = stats["total_percent"] // max(stats["books"], 1)
+        finished = stats["finished"]
+        finished_str = f" 讀完 {finished} 本" if finished > 0 else ""
+        lines.append(f"{medal} {person}：{stats['books']} 本進行中，平均 {avg}%{finished_str}")
+
+    # 最近更新的書
+    lines.append("\n📖 最近大家在讀什麼：")
+    recent = []
+    for book_title, readers in prog_data["progress"].items():
+        for person, info in readers.items():
+            pct = info.get("percent", 0)
+            if pct < 100:
+                recent.append((pct, book_title, person))
+    recent.sort(key=lambda x: x[0], reverse=True)
+    for pct, book_title, person in recent[:5]:
+        lines.append(f"  《{book_title}》{pct}% — {person}")
+
+    reply(reply_token, "\n".join(lines)[:1900])
+    return True
+
+
 # 給 webhook.py import 用的統一入口
-def handle_book_command(reply_token: str, text: str) -> bool:
+def handle_book_command(reply_token: str, text: str, member: str = "") -> bool:
     """
     統一處理所有書櫃指令。
     回傳 True 表示已處理。
@@ -549,4 +755,13 @@ def handle_book_command(reply_token: str, text: str) -> bool:
     for h in handlers:
         if h(reply_token, text):
             return True
+
+    # 需要 member 的指令
+    if handle_reading_progress(reply_token, text, member):
+        return True
+    if handle_my_progress(reply_token, text, member):
+        return True
+    if handle_family_progress(reply_token, text):
+        return True
+
     return False
