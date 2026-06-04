@@ -1,5 +1,14 @@
 {
   "version": "1.0",
   "description": "家庭閱讀進度追蹤",
-  "progress": {}
+  "progress": {
+    "引爆趨勢": {
+      "爸爸": {
+        "percent": 50,
+        "page": 0,
+        "total": 0,
+        "last_update": "2026-06-04"
+      }
+    }
+  }
 }

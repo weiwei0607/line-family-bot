@@ -15,6 +15,8 @@ import os
 import re
 from typing import List, Dict, Any
 
+from line_push import reply_text as reply
+
 logger = logging.getLogger(__name__)
 
 # 知識庫根目錄（從 scripts/handlers/ 往上兩層到專案根目錄）
