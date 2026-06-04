@@ -337,6 +337,89 @@ def handle_add_book(reply_token: str, text: str) -> bool:
     return True
 
 
+# ─── AI 知識庫注入（RAG）──────────────────────────────────
+
+def find_relevant_context(question: str, max_chars: int = 2500) -> str:
+    """
+    根據用戶問題，從家庭書櫃中搜尋相關內容，回傳可注入 AI prompt 的知識片段。
+    不需要向量資料庫，用關鍵詞匹配 + 簡單評分即可達到很好的效果。
+    """
+    if not question or len(question) < 2:
+        return ""
+
+    data = _load_index()
+    books = data.get("books", [])
+    if not books:
+        return ""
+
+    # 準備問題的關鍵詞（繁簡轉換 + 常見同義詞擴展）
+    q = question.lower()
+    keywords = set()
+    for w in q.replace("？", "").replace("?", "").replace("。", "").replace("，", ",").split():
+        keywords.add(w)
+        # 一些常見同義詞擴展
+        if "習慣" in w:
+            keywords.update(["習慣", "habit", "atomic", "原子"])
+        if "人際" in w or "關係" in w or "溝通" in w:
+            keywords.update(["人際", "關係", "溝通", "社交", "讀心", "配對", "說服"])
+        if "觀察" in w or "讀心" in w or "看穿" in w:
+            keywords.update(["觀察", "讀心", "看穿", "身體語言", "非語言", "肢體"])
+        if "趨勢" in w or "流行" in w or "傳播" in w:
+            keywords.update(["趨勢", "流行", "傳播", "引爆", "附著力", "聯繫員"])
+        if "思考" in w or "決策" in w or "偏誤" in w or "快思" in w:
+            keywords.update(["思考", "決策", "偏誤", "認知", "快思", "慢想", "系統一"])
+        if "錢" in w or "財務" in w or "投資" in w or "記帳" in w:
+            keywords.update(["錢", "財務", "投資", "記帳", "支出"])
+        if "壓力" in w or "情緒" in w or "焦慮" in w:
+            keywords.update(["壓力", "情緒", "焦慮", "凍結", "逃跑", "戰鬥", "安慰行為"])
+
+    # 評分：書名、作者、類別、tags、筆記內容都參與匹配
+    scored = []
+    for book in books:
+        score = 0
+        # 從索引匹配
+        text_all = f"{book.get('title','')} {book.get('author','')} {book.get('category','')} {' '.join(book.get('tags',[]))}"
+        for kw in keywords:
+            if kw in text_all.lower():
+                score += 5
+
+        # 讀取筆記內容做深入匹配
+        note_text = _load_note(book.get("note_file", ""))
+        if note_text:
+            for kw in keywords:
+                if kw in note_text.lower():
+                    score += 3
+            # 如果標題出現在問題中，加分
+            if book.get("title", "").lower() in q:
+                score += 10
+
+        if score > 0:
+            scored.append((score, book, note_text))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # 只取最相關的 2-3 本
+    context_parts = []
+    total_len = 0
+    for score, book, note_text in scored[:3]:
+        # 從筆記中提取「一句話總結」和「核心觀點」
+        summary = _extract_summary(note_text, max_chars=600)
+        part = f"【《{book['title']}》— {book.get('author','')}】\n{summary}\n"
+        if total_len + len(part) > max_chars:
+            break
+        context_parts.append(part)
+        total_len += len(part)
+
+    if not context_parts:
+        return ""
+
+    return (
+        "以下是我們家書櫃中與這個問題相關的書籍重點整理，回答時請參考這些內容，"
+        "並在適當時候提及「根據我們家讀過的《書名》」。\n\n"
+        + "\n".join(context_parts)
+    )
+
+
 # 給 webhook.py import 用的統一入口
 def handle_book_command(reply_token: str, text: str) -> bool:
     """

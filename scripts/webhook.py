@@ -54,6 +54,13 @@ from handlers import (
     handle_accounting,
     resolve_member,
 )
+from handlers.books import find_relevant_context as _kb_context
+
+# 只有當用戶明確要求「看書回答」時才注入知識庫
+_KB_TRIGGER_WORDS = ["看書", "根據書", "參考書", "用書", "知識庫", "讀過的書", "家裡的書", "書上說", "書裡說", "根據我們家"]
+
+def _should_inject_kb(text: str) -> bool:
+    return any(w in text for w in _KB_TRIGGER_WORDS)
 from handlers.games import handle_pairing, handle_dice, handle_rps
 from handlers.todos import handle_add_todo, handle_view_todos, handle_complete_todo, handle_cancel_todo
 from handlers.vote import handle_vote
@@ -269,10 +276,13 @@ def handle_ai_mention(reply_token: str, text: str, member: str = ""):
         else:
             persona = "你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。"
 
+        # 只有用戶要求「看書回答」時才注入知識庫
+        kb = _kb_context(question) if _should_inject_kb(question) else ""
         prompt = (
             persona
             + (f"\n\n{ctx}" if ctx else "")
             + (f"\n\n{img_desc}" if img_desc else "")
+            + (f"\n\n---\n\n{kb}\n\n---" if kb else "")
             + f"\n\n{member or '家人'}：{question}"
         )
         answer = call_ai(prompt)
@@ -758,7 +768,9 @@ def handle_message(event: MessageEvent):
             logger.info("[小花快捷路徑] question=%r member=%r", question, member)
             if question:
                 persona = "你叫小花，是這個家的AI助手，個性溫柔但偶爾小毒舌。用繁體中文回答，簡短有趣。"
-                _xiaohua_answer = call_ai(persona + f"\n\n{member or '家人'}：{question}") or "😵 腦子轉不動了～"
+                kb = _kb_context(question) if _should_inject_kb(question) else ""
+                full_prompt = persona + (f"\n\n{kb}\n\n---" if kb else "") + f"\n\n{member or '家人'}：{question}"
+                _xiaohua_answer = call_ai(full_prompt) or "😵 腦子轉不動了～"
             else:
                 _xiaohua_answer = "叫我？🌸 說吧！"
             logger.info("[小花快捷路徑] answer=%r", _xiaohua_answer[:50])
@@ -783,9 +795,11 @@ def handle_message(event: MessageEvent):
         _memory.record(member or "家人", clean)  # @提及一定是對話，直接記
         if not handle_fun(reply_token, event.source, clean, member):
             ctx = _memory.format_for_ai()
+            kb = _kb_context(clean) if _should_inject_kb(clean) else ""
             prompt = (
                 "你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。"
                 + (f"\n\n{ctx}" if ctx else "")
+                + (f"\n\n---\n\n{kb}\n\n---" if kb else "")
                 + f"\n\n問題：{clean}"
             )
             answer = call_ai(prompt)
