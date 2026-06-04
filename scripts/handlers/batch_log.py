@@ -46,7 +46,10 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
         # 1) 以「收拾/整理」開頭 → 走 tidy
         m_tidy = re.match(r'^(收拾|整理)\s*(.*)', line)
         if m_tidy:
-            content = m_tidy.group(2).strip() or line
+            content = m_tidy.group(2).strip()
+            if not content:
+                # 「收拾」兩個字單獨一行 → 只是標記，不記錄
+                continue
             area = _detect_area(content)
             tidy_items.append((area, content))
             continue
