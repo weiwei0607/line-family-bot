@@ -420,6 +420,117 @@ def find_relevant_context(question: str, max_chars: int = 2500) -> str:
     )
 
 
+
+
+# ─── 進階功能：讀書推薦與挑戰 ──────────────────────────────
+
+def handle_recent_reading(reply_token: str, text: str) -> bool:
+    """!最近讀什麼 — 推薦一本待讀或值得重讀的書"""
+    if text not in ["!最近讀什麼", "!推薦閱讀", "!讀什麼", "!下一本"]:
+        return False
+
+    data = _load_index()
+    books = data.get("books", [])
+    if not books:
+        reply(reply_token, "📚 書櫃還是空的。傳「!新增書」開始建檔吧！")
+        return True
+
+    import random
+    # 先找待讀的書
+    pending = [b for b in books if b.get("status") == "待讀"]
+    if pending:
+        book = random.choice(pending)
+        status_msg = "這本還沒人讀過，誰要當第一個？"
+    else:
+        # 全部已讀，挑一本隨機推薦重讀
+        book = random.choice(books)
+        status_msg = "雖然讀過了，但值得再讀一次！"
+
+    note_text = _load_note(book.get("note_file", ""))
+    summary = _extract_summary(note_text, max_chars=500)
+
+    lines = [
+        "📖 小花推薦你讀這本：",
+        "",
+        f"《{book['title']}》",
+        f"作者：{book.get('author', '')}",
+        f"類別：{book.get('category', '')}",
+    ]
+
+    # 如果有筆記摘要，加上去
+    if summary and summary != "（尚無摘要）":
+        lines.extend([
+            "",
+            "📝 內容預覽：",
+            summary[:300] + ("..." if len(summary) > 300 else ""),
+        ])
+
+    lines.extend([
+        "",
+        f"{status_msg}",
+        "",
+        "💡 讀完記得整理筆記放進知識庫，傳「!筆記 書名」就能查到！",
+    ])
+
+    reply(reply_token, "\n".join(lines)[:1900])
+    return True
+
+
+def handle_reading_challenge(reply_token: str, text: str) -> bool:
+    """!讀書挑戰 — 生成本週閱讀挑戰"""
+    if text not in ["!讀書挑戰", "!閱讀挑戰", "!本週挑戰", "!讀書目標"]:
+        return False
+
+    data = _load_index()
+    books = data.get("books", [])
+    if not books:
+        reply(reply_token, "📚 書櫃還是空的，無法生成挑戰。傳「!新增書」開始吧！")
+        return True
+
+    import random
+    # 優先挑待讀的
+    pending = [b for b in books if b.get("status") == "待讀"]
+    book = random.choice(pending if pending else books)
+
+    # 挑戰內容隨機組合
+    challenges = [
+        "每天睡前讀 20 頁",
+        "這週末抽出 2 小時一口氣讀完前半本",
+        "每天通勤時讀 15 分鐘",
+        "做 3 頁重點筆記（可以用 AI 提示詞整理）",
+        "讀完後跟家人分享一個最有收穫的觀點",
+        "邊讀邊畫心智圖，把重點視覺化",
+    ]
+    challenge = random.choice(challenges)
+
+    rewards = [
+        "完成獎勵：免做一次家事",
+        "完成獎勵：獲得 3 點家庭點數",
+        "完成獎勵：週末選一部想看的電影",
+        "完成獎勵：讓其他人請你喝一杯飲料",
+        "完成獎勵：獲得「知識達人」稱號一週",
+    ]
+    reward = random.choice(rewards)
+
+    lines = [
+        "📚 本週讀書挑戰",
+        "",
+        f"📖 目標書籍：《{book['title']}》{book.get('author', '')}",
+        f"   類別：{book.get('category', '')} | 狀態：{book.get('status', '')}",
+        "",
+        f"🎯 挑戰內容：{challenge}",
+        "",
+        f"🏆 {reward}",
+        "",
+        "💡 小提示：讀完後把書摘貼給 AI，用 knowledge_base/templates/ai_prompt.md 的提示詞整理筆記！",
+        "",
+        "誰要接受這個挑戰？在群組裡喊「我接！」",
+    ]
+
+    reply(reply_token, "\n".join(lines)[:1900])
+    return True
+
+
 # 給 webhook.py import 用的統一入口
 def handle_book_command(reply_token: str, text: str) -> bool:
     """
@@ -432,6 +543,8 @@ def handle_book_command(reply_token: str, text: str) -> bool:
         handle_book_list,
         handle_recommend_book,
         handle_add_book,
+        handle_recent_reading,
+        handle_reading_challenge,
     ]
     for h in handlers:
         if h(reply_token, text):
