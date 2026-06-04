@@ -43,18 +43,7 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
         if not line:
             continue
 
-        # 1) 以「收拾/整理」開頭 → 走 tidy
-        m_tidy = re.match(r'^(收拾|整理)\s*(.*)', line)
-        if m_tidy:
-            content = m_tidy.group(2).strip()
-            if not content:
-                # 「收拾」兩個字單獨一行 → 只是標記，不記錄
-                continue
-            area = _detect_area(content)
-            tidy_items.append((area, content))
-            continue
-
-        # 2) 嘗試匹配家事（含自定分數）
+        # 1) 先嘗試匹配家事（含自定分數）
         m = chore_pattern.match(line)
         if m:
             name = m.group(1).strip()
@@ -70,16 +59,31 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
         )
 
         if matched_chore:
-            # 3) 匹配到已知家事 → 記家事
+            # 匹配到已知家事 → 記家事
             chores.append((matched_chore["name"], matched_chore["points"]))
-        else:
-            # 4) 沒匹配到家事，但 _detect_area 能識別區域 → 走 tidy
-            area = _detect_area(line)
+            continue
+
+        # 2) 家事沒匹配到，檢查是否以「收拾/整理」開頭 → 走 tidy
+        m_tidy = re.match(r'^(收拾|整理)\s*(.*)', line)
+        if m_tidy:
+            content = m_tidy.group(2).strip()
+            if not content:
+                # 「收拾」兩個字單獨一行 → 只是標記，不記錄
+                continue
+            area = _detect_area(content)
             if area != "未分類":
-                tidy_items.append((area, line))
+                tidy_items.append((area, content))
             else:
-                # 5) 家事也找不到、區域也分不出 → 請使用者講清楚
                 errors.append(f"• {line}（請標註「自己」或「公共」，例如：自己 {line}）")
+            continue
+
+        # 3) 也不是 tidy，檢查 _detect_area 是否能識別區域 → 走 tidy
+        area = _detect_area(line)
+        if area != "未分類":
+            tidy_items.append((area, line))
+        else:
+            # 家事也找不到、區域也分不出 → 請使用者講清楚
+            errors.append(f"• {line}（請標註「自己」或「公共」，例如：自己 {line}）")
 
     # 記錄收拾
     for area, content in tidy_items:
