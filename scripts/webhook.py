@@ -386,12 +386,40 @@ def daily_push():
 
     from sheets import get_members, get_chores, get_weekly_points
     from api_helpers import format_weather_block
+    from tts_store import cron_try_mark_done
+    from datetime import datetime as _dt
+    from utils import send_telegram_alert
 
     group_id = os.environ.get("LINE_GROUP_ID", "")
     if not group_id:
+        logger.error("daily_push: LINE_GROUP_ID not set")
         return "LINE_GROUP_ID not set", 500
 
-    # ── 先準備內容、推送訊息，最後才標記 done（避免冷啟動超時導致「標了沒發」）──
+    today_str = _dt.now().strftime("%Y-%m-%d")
+
+    # 防重複：先檢查今天是否已經發過
+    if not cron_try_mark_done("daily_push", today_str):
+        logger.info("daily_push already sent today (%s), skipping.", today_str)
+        return "Already sent today", 200
+
+    logger.info("daily_push started for %s", today_str)
+
+    lines = ["☀️ 早安！家管助理日報\n"]
+    errors = []
+
+    # ── 天氣（失敗不影響其他內容）──
+    try:
+        weather = format_weather_block()
+        lines.append(weather)
+        lines.append("")
+        logger.info("daily_push: weather fetched")
+    except Exception as exc:
+        logger.exception("daily_push weather failed")
+        errors.append(f"weather: {exc}")
+        lines.append("（天氣資料暫時無法取得）")
+        lines.append("")
+
+    # ── 家事清單 ──
     try:
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=3) as ex:
@@ -401,11 +429,8 @@ def daily_push():
             members = f_members.result()
             pts     = f_pts.result()
             chores  = f_chores.result()
-        low_pts = [m for m in members if pts.get(m, 0) < POINTS_THRESHOLD]
+        logger.info("daily_push: members=%s chores=%s", members, len(chores))
 
-        lines = ["☀️ 早安！家管助理日報\n"]
-        lines.append(format_weather_block())
-        lines.append("")
         if chores:
             lines.append(f"📋 今日待完成家事（共 {len(chores)} 項）：")
             for c in chores[:8]:
@@ -413,6 +438,8 @@ def daily_push():
         else:
             lines.append("🎉 今日家事全部完成！大家辛苦了！")
         lines.append("")
+
+        low_pts = [m for m in members if pts.get(m, 0) < POINTS_THRESHOLD]
         if low_pts:
             lines.append("⚠️ 本週點數還不夠的成員：")
             for m in low_pts:
@@ -420,13 +447,26 @@ def daily_push():
             lines.append("\n快去完成家事累積點數吧！💪")
         else:
             lines.append("✅ 大家本週點數都達標了，棒棒！🎉")
-        lines.append("\n輸入「家事清單」查看待完成家事")
-        text_body = "\n".join(lines)
+    except Exception as exc:
+        logger.exception("daily_push chores/points failed")
+        errors.append(f"chores: {exc}")
+        lines.append("（家事資料暫時無法取得）")
 
-        # 先送文字
+    lines.append("\n輸入「家事清單」查看待完成家事")
+    text_body = "\n".join(lines)
+
+    # ── 推送文字（核心，失敗就整個回傳 500）──
+    try:
         push_messages(group_id, [{"type": "text", "text": text_body[:4900]}])
+        logger.info("daily_push: text message sent")
+    except Exception as exc:
+        logger.exception("daily_push text push failed")
+        send_telegram_alert(f"daily_push text push failed: {type(exc).__name__}: {exc}")
+        # 文字推送失敗 = 整個失敗，標記要回滾
+        return f"Text push failed: {exc}", 500
 
-        # 再送 TTS 語音（早安問候）
+    # ── TTS 語音（非核心，失敗不影響文字推送）──
+    try:
         base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
         if base_url:
             greeting = f"早安！今天天氣{'不錯，出門記得防曬！' if '晴' in text_body else '要注意，出門帶傘喔！'}"
@@ -437,19 +477,15 @@ def daily_push():
                 audio_url = f"{base_url}/tts/{fname}"
                 duration = min(len(greeting) * 300 + 1000, 30000)
                 push_messages(group_id, [{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
-
+                logger.info("daily_push: TTS sent")
     except Exception as exc:
-        logger.exception("daily_push failed: %s", exc)
-        try:
-            from utils import send_telegram_alert
-            send_telegram_alert(f"daily_push failed: {type(exc).__name__}: {exc}")
-        except Exception:
-            pass
-        return f"Error: {exc}", 500
+        logger.exception("daily_push TTS failed")
+        errors.append(f"tts: {exc}")
 
-    # 推送成功後才標記 done
-    from tts_store import cron_try_mark_done
-    cron_try_mark_done("daily_push")
+    if errors:
+        send_telegram_alert(f"daily_push completed with partial errors: {'; '.join(errors)}")
+
+    logger.info("daily_push completed successfully for %s", today_str)
     return "OK"
 
 
