@@ -8,7 +8,6 @@ import os
 import re
 import sys
 import logging
-from linebot.v3.messaging import ApiClient, MessagingApi
 from sheets import add_tidy_log, format_tidy_summary, _detect_area, get_today_tidy_type_count, get_tidy_debt
 from line_push import reply_text as reply
 
@@ -76,9 +75,12 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
         _VALID_MEMBERS = {"爸爸", "媽媽", "姊姊", "妹妹"}
         if not member or member not in _VALID_MEMBERS:
             try:
-                with ApiClient(configuration) as api_client:
-                    profile = MessagingApi(api_client).get_profile(getattr(source, "user_id", ""))
-                    member = profile.display_name
+                import os, requests as _req
+                _uid = getattr(source, "user_id", "")
+                _tok = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+                _r = _req.get(f"https://api.line.me/v2/bot/profile/{_uid}",
+                              headers={"Authorization": f"Bearer {_tok}"}, timeout=8)
+                member = _r.json().get("displayName", "")
             except Exception as _exc:
                 logger.warning("Silent error: %s", _exc)
         if not member or member not in _VALID_MEMBERS:
@@ -136,9 +138,12 @@ def _handle_tidy(reply_token: str, text: str, member: str, source, configuration
         _VALID_MEMBERS = {"爸爸", "媽媽", "姊姊", "妹妹"}
         if not member or member not in _VALID_MEMBERS:
             try:
-                with ApiClient(configuration) as api_client:
-                    profile = MessagingApi(api_client).get_profile(getattr(source, "user_id", ""))
-                    member = profile.display_name
+                import os, requests as _req
+                _uid = getattr(source, "user_id", "")
+                _tok = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+                _r = _req.get(f"https://api.line.me/v2/bot/profile/{_uid}",
+                              headers={"Authorization": f"Bearer {_tok}"}, timeout=8)
+                member = _r.json().get("displayName", "")
             except Exception as _exc:
                 logger.warning("Silent error: %s", _exc)
         if not member or member not in _VALID_MEMBERS:
