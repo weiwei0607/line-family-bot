@@ -672,7 +672,7 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
         if text.startswith("提醒"):
             reply(reply_token, handle_add_todo(member, text))
             return True
-        if text in ["待辦清單", "待辦", "我的待辦"]:
+        if text in ["待辦清單", "待辦", "我的待辦", "待辦事項"]:
             reply(reply_token, handle_view_todos())
             return True
         if text.startswith("完成待辦"):
@@ -767,7 +767,19 @@ def handle_message(event: MessageEvent):
             question = text[2:].strip()
             logger.info("[小花快捷路徑] question=%r member=%r", question, member)
             if question:
-                persona = "你叫小花，是這個家的AI助手，個性溫柔但偶爾小毒舌。用繁體中文回答，簡短有趣。"
+                # 提醒指令路由到 todo handler
+                if question.startswith("提醒"):
+                    from handlers.todos import handle_add_todo
+                    _xiaohua_answer = handle_add_todo(member, question)
+                    _real_group_id = getattr(event.source, "group_id", None) or getattr(event.source, "room_id", None)
+                    target_id = _real_group_id or _grp or user_id
+                    push_messages(target_id, [{"type": "text", "text": _xiaohua_answer}])
+                    return
+                persona = (
+                    "你叫小花，是這個家的AI助手，個性溫柔但偶爾小毒舌。用繁體中文回答，簡短有趣。"
+                    "重要：絕對不能捏造家事點數、待辦事項等資料庫的實際數字。"
+                    "若有人要你幫忙加點數，請告知正確指令（如：完成 拖地）。"
+                )
                 kb = _kb_context(question) if _should_inject_kb(question) else ""
                 full_prompt = persona + (f"\n\n{kb}\n\n---" if kb else "") + f"\n\n{member or '家人'}：{question}"
                 _xiaohua_answer = call_ai(full_prompt) or "😵 腦子轉不動了～"

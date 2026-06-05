@@ -4,7 +4,7 @@ import os
 import re
 from line_push import reply_text as reply
 from sheets import (
-    complete_chore, get_chores, add_chore, format_weekly_summary,
+    complete_chore, get_chores, add_chore,
     get_weekly_points, get_members, get_member_weekly_breakdown,
     cancel_last_record, log_chore_points, WEEKLY_CAPS, bg,
     add_shopping, complete_shopping, get_shopping_list,
@@ -72,7 +72,7 @@ def handle_chores(reply_token: str, member: str, text: str) -> bool:
                 capped_list.append(result["name"])
             elif result:
                 pts_str = f"{result['points']:.2f}".rstrip('0').rstrip('.')
-                log_chore_points(who, result["name"], result["points"])
+                bg(log_chore_points, who, result["name"], result["points"])
                 successes.append((result["name"], pts_str))
             else:
                 not_found.append(chore_name)
@@ -89,7 +89,7 @@ def handle_chores(reply_token: str, member: str, text: str) -> bool:
                 lines.append(f"⚠️ 「{name}」本週已達上限，不再計分")
             for name in not_found:
                 lines.append(f"❓ 找不到「{name}」")
-            lines.append(f"\n{format_weekly_summary()}")
+            lines.append(f"\n傳「點數」查看本週排行 📊")
             reply(reply_token, "\n".join(lines))
         return True
 

@@ -63,6 +63,10 @@ def _extract_time(content: str) -> str | None:
     return f"{hour:02d}:{minute:02d}"
 
 
+_CN_MONTHS = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10,'十一':11,'十二':12}
+_CN_DATE_PAT = r'(?:十一|十二|[一二三四五六七八九十])月(?:\d{1,2}|[一二三四五六七八九十]+)[號日]?'
+
+
 def _parse_reminder_date(s: str) -> str | None:
     today = datetime.now(TW_TZ).date()
     if s in ["今天"]:
@@ -73,7 +77,7 @@ def _parse_reminder_date(s: str) -> str | None:
         return (today + timedelta(days=2)).strftime("%Y-%m-%d")
     if s in ["大後天"]:
         return (today + timedelta(days=3)).strftime("%Y-%m-%d")
-    m = re.match(r'^(\d{1,2})[/月](\d{1,2})日?$', s)
+    m = re.match(r'^(\d{1,2})[/月](\d{1,2})[號日]?$', s)
     if m:
         try:
             from datetime import date as _d
@@ -82,6 +86,21 @@ def _parse_reminder_date(s: str) -> str | None:
             if t < today:
                 t = _d(today.year + 1, mo, dy)
             return t.strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+    # Chinese month/day: 八月一號, 八月1日, 十一月5號
+    m2 = re.match(r'^(十一|十二|[一二三四五六七八九十])月(\d{1,2}|[一二三四五六七八九十]+)[號日]?$', s)
+    if m2:
+        try:
+            from datetime import date as _d
+            mo = _CN_MONTHS.get(m2.group(1))
+            dy_s = m2.group(2)
+            dy = int(dy_s) if dy_s.isdigit() else _cn_to_int(dy_s)
+            if mo and dy:
+                t = _d(today.year, mo, dy)
+                if t < today:
+                    t = _d(today.year + 1, mo, dy)
+                return t.strftime("%Y-%m-%d")
         except ValueError:
             return None
     return None
@@ -96,7 +115,10 @@ def _extract_reminder(text: str) -> tuple | None:
     m = re.match(r'^提醒我\s*(今天|明天|後天|大後天|明日)\s*(.*)', text)
     if m:
         return (None, m.group(1), m.group(2).strip())
-    m = re.match(r'^提醒我\s*(\d{1,2}[/月]\d{1,2}日?)\s*(.*)', text)
+    m = re.match(r'^提醒我\s*(\d{1,2}[/月]\d{1,2}[號日]?)\s*(.*)', text)
+    if m:
+        return (None, m.group(1), m.group(2).strip())
+    m = re.match(rf'^提醒我\s*({_CN_DATE_PAT})\s*(.*)', text)
     if m:
         return (None, m.group(1), m.group(2).strip())
     # Pattern 1b: 提醒我 晚上九點半 做事 → 今天
@@ -108,7 +130,10 @@ def _extract_reminder(text: str) -> tuple | None:
     m = re.match(r'^提醒\s*(\S+?)\s*(今天|明天|後天|大後天|明日)\s*(.*)', text)
     if m:
         return (m.group(1), m.group(2), m.group(3).strip())
-    m = re.match(r'^提醒\s*(\S+?)\s*(\d{1,2}[/月]\d{1,2}日?)\s*(.*)', text)
+    m = re.match(r'^提醒\s*(\S+?)\s*(\d{1,2}[/月]\d{1,2}[號日]?)\s*(.*)', text)
+    if m:
+        return (m.group(1), m.group(2), m.group(3).strip())
+    m = re.match(rf'^提醒\s*(\S+?)\s*({_CN_DATE_PAT})\s*(.*)', text)
     if m:
         return (m.group(1), m.group(2), m.group(3).strip())
     # Pattern 2b: 提醒 爸爸 晚上九點半 做事 → 今天
