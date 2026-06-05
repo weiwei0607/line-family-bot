@@ -131,8 +131,8 @@ def load_from_sheets(n: int = _BUFFER_SIZE):
     try:
         from sheets import _read, _ensure_tab
         _ensure_tab(_TAB)
-        # 先讀取總行數，只抓最近 200 行（減少啟動時記憶體與 API 消耗）
-        rows = _read(_TAB, "A2:D200")
+        # 讀取足夠多的行以觸發 prune（舊版只讀 200 行，導致 total 永遠 < _SHEETS_MAX_ROWS）
+        rows = _read(_TAB, "A2:D2000")
         total = len(rows)
         if total >= _SHEETS_MAX_ROWS:
             _prune_sheets(rows)
@@ -155,15 +155,14 @@ def load_from_sheets(n: int = _BUFFER_SIZE):
 
 
 def _prune_sheets(all_rows: list):
-    """把 Sheets 修剪到最新 _SHEETS_MAX_ROWS 行。只清除實際有資料的範圍，避免誤刪。"""
+    """把 Sheets 修剪到最新 _SHEETS_MAX_ROWS 行。用大範圍清除確保殘留行也被刪乾淨。"""
     try:
         from sheets import _get_service, _get_sheet_id
         keep = all_rows[-_SHEETS_MAX_ROWS:]
         svc = _get_service()
         sid = _get_sheet_id()
-        total_rows = len(all_rows)
-        # 只清除實際有資料的範圍（A2 開始）
-        clear_range = f"{_TAB}!A2:D{total_rows + 1}"
+        # 用超大範圍清除（A2:D99999），確保讀取範圍外的舊行也被清掉
+        clear_range = f"{_TAB}!A2:D99999"
         svc.spreadsheets().values().clear(
             spreadsheetId=sid, range=clear_range
         ).execute()
