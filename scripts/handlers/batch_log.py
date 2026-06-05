@@ -38,6 +38,7 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
     chores_sheet = None
     chores: list[tuple[str, float]] = []
     tidy_items: list[tuple[str, str]] = []  # (area, content)
+    errors: list[str] = []
 
     for line in chore_lines:
         if not line:
