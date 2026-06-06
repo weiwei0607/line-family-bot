@@ -129,14 +129,10 @@ def load_from_sheets(n: int = _BUFFER_SIZE):
     if _loaded:
         return
     try:
-        from sheets import _read, _ensure_tab
+        from sheets import _read, _ensure_tab, bg
         _ensure_tab(_TAB)
-        # 讀取足夠多的行以觸發 prune（舊版只讀 200 行，導致 total 永遠 < _SHEETS_MAX_ROWS）
-        rows = _read(_TAB, "A2:D2000")
-        total = len(rows)
-        if total >= _SHEETS_MAX_ROWS:
-            _prune_sheets(rows)
-            rows = rows[-_SHEETS_MAX_ROWS:]
+        # 只讀最近 200 行填入記憶體（低記憶體開銷）
+        rows = _read(_TAB, "A2:D200")
         with _lock:
             for r in rows[-n:]:
                 if len(r) < 3:
@@ -149,9 +145,25 @@ def load_from_sheets(n: int = _BUFFER_SIZE):
                     "gid":     gid,
                 })
         _loaded = True
-        logger.info("memory: loaded %d rows (total %d)", min(n, total), total)
+        logger.info("memory: loaded %d rows", len(rows))
+        # 背景檢查是否需要 prune（不阻塞啟動）
+        bg(_check_and_prune)
     except Exception as exc:
         logger.warning("memory.load_from_sheets failed: %s", exc)
+
+
+def _check_and_prune():
+    """背景檢查 Sheets 是否超過上限，需要時才讀取全部資料 prune。"""
+    try:
+        from sheets import _read
+        # 輕量 sentinel：只讀第 _SHEETS_MAX_ROWS+1 行的 A 欄
+        sentinel = _read(_TAB, f"A{_SHEETS_MAX_ROWS + 1}:A{_SHEETS_MAX_ROWS + 1}")
+        if not sentinel:
+            return  # 在上限內，不需要 prune
+        all_rows = _read(_TAB, "A2:D9999")
+        _prune_sheets(all_rows)
+    except Exception as exc:
+        logger.warning("memory._check_and_prune failed: %s", exc)
 
 
 def _prune_sheets(all_rows: list):
