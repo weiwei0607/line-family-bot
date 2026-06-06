@@ -464,6 +464,30 @@ def daily_push():
         lines.append("（家事資料暫時無法取得）")
 
     lines.append("\n輸入「家事清單」查看待完成家事")
+
+    # ── 待辦事項 ──
+    try:
+        from sheets import get_todos
+        from datetime import datetime as _dt2, timedelta as _td2, timezone as _tz2
+        _TW_TZ2 = _tz2(_td2(hours=8))
+        todos = get_todos(only_pending=True)
+        today2 = _dt2.now(_TW_TZ2).strftime("%Y-%m-%d")
+        today_todos = [t for t in todos if t["date"] == today2]
+        overdue_todos = [t for t in todos if t["date"] < today2]
+        all_todos = today_todos + overdue_todos
+        if all_todos:
+            lines.append("")
+            if today_todos:
+                lines.append("📅 今天待辦：")
+                for t in today_todos[:5]:
+                    lines.append(f"  • {t['member']}｜{t['content']}")
+            if overdue_todos:
+                lines.append("⏰ 逾期未完成：")
+                for t in overdue_todos[:3]:
+                    lines.append(f"  • {t['member']}｜{t['content']}")
+    except Exception as exc:
+        logger.warning("daily_push todos failed: %s", exc)
+
     text_body = "\n".join(lines)
 
     # ── 推送文字（核心，失敗就整個回傳 500）──
@@ -473,25 +497,7 @@ def daily_push():
     except Exception as exc:
         logger.exception("daily_push text push failed")
         send_telegram_alert(f"daily_push text push failed: {type(exc).__name__}: {exc}")
-        # 文字推送失敗 = 整個失敗，標記要回滾
         return f"Text push failed: {exc}", 500
-
-    # ── TTS 語音（非核心，失敗不影響文字推送）──
-    try:
-        base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-        if base_url:
-            greeting = f"早安！今天天氣{'不錯，出門記得防曬！' if '晴' in text_body else '要注意，出門帶傘喔！'}"
-            tts_result = text_to_speech(greeting, "zh-TW")
-            if tts_result:
-                audio_bytes, mime = tts_result
-                fname = save_tts_audio(audio_bytes, mime)
-                audio_url = f"{base_url}/tts/{fname}"
-                duration = min(len(greeting) * 300 + 1000, 30000)
-                push_messages(group_id, [{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
-                logger.info("daily_push: TTS sent")
-    except Exception as exc:
-        logger.exception("daily_push TTS failed")
-        errors.append(f"tts: {exc}")
 
     if errors:
         send_telegram_alert(f"daily_push completed with partial errors: {'; '.join(errors)}")
@@ -526,14 +532,6 @@ def check_reminders():
     def _push_with_tts(msg, voice_text):
         nonlocal sent
         push_messages(group_id, [{"type": "text", "text": msg}])
-        if base_url:
-            tts_result = text_to_speech(voice_text, "zh-TW")
-            if tts_result:
-                audio_bytes, mime = tts_result
-                fname = save_tts_audio(audio_bytes, mime)
-                audio_url = f"{base_url}/tts/{fname}"
-                duration = min(len(voice_text) * 300 + 1000, 30000)
-                push_messages(group_id, [{"type": "audio", "originalContentUrl": audio_url, "duration": duration}])
         sent += 1
 
     def _send_reminder(t, msg, voice_text, new_count):

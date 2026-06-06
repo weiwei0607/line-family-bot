@@ -8,8 +8,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(__file__))
 from sheets import get_todos
-from api_helpers import call_ai, text_to_speech, save_tts_audio
-from line_push import push_text_to_group, push_audio
+from api_helpers import call_ai
+from line_push import push_text_to_group
 
 TW_TZ = timezone(timedelta(hours=8))
 
@@ -74,25 +74,6 @@ def main():
 
     text_msg = "\n".join(lines)
     push_text_to_group(text_msg)
-
-    # ── 語音催辦 ──
-    if all_shame_targets:
-        base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-        if base_url:
-            voice_text = (
-                f"催辦時間到！"
-                + f"今天還有 {len(today_todos)} 件待辦沒完成，"
-                + f"{len(overdue_todos)} 件已經逾期。"
-                + "快去做完吧！"
-            )
-            tts_result = text_to_speech(voice_text, "zh-TW")
-            if tts_result:
-                audio_bytes, mime = tts_result
-                fname = save_tts_audio(audio_bytes, mime)
-                audio_url = f"{base_url}/tts/{fname}"
-                duration = min(len(voice_text) * 300 + 1000, 30000)
-                push_audio(os.environ.get("LINE_GROUP_ID", ""), audio_url, duration)
-
     print("Evening todo reminder sent.")
 
 
