@@ -54,6 +54,8 @@ from handlers import (
     handle_accounting,
     resolve_member,
 )
+from handlers.notebook import handle_notebook_command
+from handlers.links import handle_link_command
 from handlers.books import find_relevant_context as _kb_context
 
 # 只有當用戶明確要求「看書回答」時才注入知識庫
@@ -695,6 +697,8 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
             handle_accounting(reply_token, member, text) or
             handle_fine(reply_token, member, text) or
             handle_declutter(reply_token, member, text) or
+            handle_notebook_command(reply_token, text, member, reply) or
+            handle_link_command(reply_token, text, member, reply) or
             _safe_handle_fun(reply_token, source, text, member) or
             handle_ai_mention(reply_token, text, member)
         ):
