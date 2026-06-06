@@ -1,0 +1,20 @@
+name: Monthly Quota Reset Check
+
+on:
+  schedule:
+    - cron: '0 16 1 * *'  # 每月 1 日 00:00 CST (UTC+8, 16:00 UTC)
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify LINE push quota reset
+        run: |
+          RESULT=$(curl -s "https://api.line.me/v2/bot/message/quota/consumption" \
+            -H "Authorization: Bearer ${{ secrets.FAMILY_LINE_CHANNEL_ACCESS_TOKEN }}")
+          USED=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('totalUsage', '?'))")
+          echo "本月已用: ${USED} / 200 則"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="✅ LINE push quota 月初重設！本月已用：${USED}/200 則" || true
