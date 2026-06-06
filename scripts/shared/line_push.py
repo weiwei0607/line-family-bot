@@ -6,10 +6,7 @@ import os
 import logging
 import requests
 import time
-from linebot.v3.messaging import (
-    Configuration, ApiClient, MessagingApi,
-    ReplyMessageRequest, TextMessage, ImageMessage, AudioMessage,
-)
+from linebot.v3.messaging import Configuration
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +140,10 @@ def push_messages(to: str, messages: list):
         )
         print(f"[LINE_PUSH] status={resp.status_code} to={to[:20]}...", flush=True)
         logger.info("push_messages status=%s to=%s...", resp.status_code, to[:20])
+        if resp.status_code == 429:
+            _alert_admin("⚠️ LINE push quota 已用完（429）\n本月 200 則已耗盡，請至 LINE Console 確認，或等下月 1 日重設")
+        elif resp.status_code >= 500:
+            _alert_admin(f"⚠️ LINE API 伺服器錯誤（{resp.status_code}），請稍後確認")
     except Exception as exc:
         print(f"[LINE_PUSH] failed: {type(exc).__name__}: {exc}", flush=True)
         logger.warning("push_messages failed: %s", exc)
