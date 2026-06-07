@@ -95,7 +95,7 @@ def append_log(service, sheet_id: str, title: str, ts: str, rss, vmem) -> None:
 
 
 def main() -> int:
-    url = os.environ.get("RENDER_EXTERNAL_URL", "https://line-family-bot-ump0.onrender.com").rstrip("/")
+    url = (os.environ.get("RENDER_EXTERNAL_URL") or "https://line-family-bot-ump0.onrender.com").rstrip("/")
     sheet_id = os.environ.get("FAMILY_SHEET_ID", "")
     threshold = float(os.environ.get("MEMORY_ALERT_THRESHOLD_MB", "400"))
 
