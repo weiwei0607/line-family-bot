@@ -1,0 +1,32 @@
+name: Log Memory
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # 每小時整點
+    - cron: '30 * * * *'  # 每小時半點（多一點數據點）
+  workflow_dispatch:
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install google-auth google-auth-oauthlib google-api-python-client requests
+
+      - name: Log memory to Sheet
+        run: python scripts/log_memory.py
+        env:
+          RENDER_EXTERNAL_URL: ${{ secrets.RENDER_EXTERNAL_URL }}
+          FAMILY_SHEET_ID: ${{ secrets.FAMILY_SHEET_ID }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MEMORY_ALERT_THRESHOLD_MB: "400"
