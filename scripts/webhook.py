@@ -156,11 +156,12 @@ def _after_request(response):
     )
     return response
 
-# 註冊 Daily Dose API
-from dose_api import dose_bp
+# 註冊 Daily Dose API（可選，沒用到就關掉省記憶體）
 import logging
 logger = logging.getLogger(__name__)
-app.register_blueprint(dose_bp)
+if os.environ.get("ENABLE_DOSE_API", "").lower() in ("1", "true", "yes"):
+    from dose_api import dose_bp
+    app.register_blueprint(dose_bp)
 
 _token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 _secret = os.environ.get("LINE_CHANNEL_SECRET", "")
