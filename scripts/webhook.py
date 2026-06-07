@@ -1072,7 +1072,7 @@ def _analyze_group_images(group_id: str) -> str:
 
 from utils import send_telegram_alert, rate_limit_check
 
-_webhook_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="wh")
+_webhook_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="wh")
 
 @app.errorhandler(Exception)
 def _handle_error(e):

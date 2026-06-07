@@ -38,7 +38,7 @@ def _handle_finance(reply_token: str, text: str) -> bool:
 
     # ── 金價 ──
     if text in ["金價", "今日金價", "黃金價格"]:
-        with ThreadPoolExecutor(max_workers=2) as ex:
+        with ThreadPoolExecutor(max_workers=1) as ex:
             f_gold = ex.submit(get_gold_price)
             f_twd = ex.submit(get_currency, "USD", "TWD")
             data = f_gold.result()

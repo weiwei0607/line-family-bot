@@ -172,7 +172,7 @@ def dose_all():
     }
 
     results: dict[str, any] = {"horoscope_sign": sign_zh}
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         future_to_key = {
             pool.submit(fn): key for key, fn in _FETCHERS.items()
         }

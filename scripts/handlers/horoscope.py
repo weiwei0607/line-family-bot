@@ -37,7 +37,7 @@ def _handle_horoscope(reply_token: str, text: str, member_signs: dict[str, str])
 
     # ── 今日全員運勢 ──
     if text in ["今日全員運勢", "全員運勢", "大家的運勢", "家人運勢"]:
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        with ThreadPoolExecutor(max_workers=2) as executor:
             futures = {
                 executor.submit(get_horoscope_round_robin, sign): name
                 for name, sign in member_signs.items()
@@ -56,7 +56,7 @@ def _handle_horoscope(reply_token: str, text: str, member_signs: dict[str, str])
                 return name, sign, desc, data.get("color", "—"), data.get("lucky_number", "—")
             return name, sign, None, "—", "—"
 
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        with ThreadPoolExecutor(max_workers=2) as executor:
             translated = list(executor.map(_translate_one, member_signs.items()))
 
         lines = ["✨ 今日全家運勢\n"]
