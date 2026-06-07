@@ -86,15 +86,16 @@ def _get_family_footer() -> str:
     if _footer_cache["v"] is not None and now - _footer_cache["ts"] < _FOOTER_TTL:
         return _footer_cache["v"]
     try:
-        from sheets import get_members, get_chores, get_weekly_points, get_tea_checkins
+        from sheets import get_members, get_weekly_points, get_tea_checkins
         from datetime import datetime as _dt2
         from zoneinfo import ZoneInfo as _ZI
         today = _dt2.now(_ZI("Asia/Taipei")).strftime("%Y-%m-%d")
 
+        from sheets import get_tidy_debt
         members = get_members()
         pts = get_weekly_points()
-        chores = get_chores()
         tea_done = get_tea_checkins(today)
+        debt = get_tidy_debt()
 
         lines = []
         low_pts = [(m, round(pts.get(m, 0), 1)) for m in members if pts.get(m, 0) < POINTS_THRESHOLD]
@@ -106,8 +107,14 @@ def _get_family_footer() -> str:
         if no_tea:
             lines.append(f"🍵 未喝茶：{'、'.join(no_tea)}")
 
-        if chores:
-            lines.append(f"📋 待完成家事：{len(chores)} 項")
+        owe_public = [m for m in members if debt.get(m, {}).get("公共", 0) > 0]
+        owe_self = [m for m in members if debt.get(m, {}).get("自己", 0) > 0]
+        if owe_public:
+            detail = "、".join(f"{m}（{debt[m]['公共']}天）" for m in owe_public)
+            lines.append(f"🏠 欠公共收拾：{detail}")
+        if owe_self:
+            detail = "、".join(f"{m}（{debt[m]['自己']}天）" for m in owe_self)
+            lines.append(f"🛋️ 欠自己收拾：{detail}")
 
         footer = ("\n─────────────\n" + "\n".join(lines)) if lines else ""
         _footer_cache["v"] = footer
