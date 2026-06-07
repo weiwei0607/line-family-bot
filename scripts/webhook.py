@@ -31,44 +31,33 @@ from api_helpers import (
     call_gemini, call_ai, groq_stt,
 )
 
-from handlers import (
-    _handle_entertainment,
-    _handle_finance,
-    _handle_horoscope,
-    _handle_images,
-    _handle_language,
-    _handle_quiz,
-    _handle_tidy,
-    _handle_tts,
-    _handle_utils,
-    _handle_weather,
-    handle_admin,
-    handle_batch_log,
-    handle_book_command,
+from handlers.admin import handle_admin
+from handlers.batch_log import handle_batch_log
+from handlers.domestic import (
+    handle_accounting,
     handle_chores,
     handle_declutter,
     handle_fine,
-    handle_help,
     handle_points,
     handle_shopping,
-    handle_accounting,
-    handle_tea,
-    resolve_member,
 )
-from handlers.notebook import handle_notebook_command
-from handlers.links import handle_link_command
-from handlers.books import find_relevant_context as _kb_context
+from handlers.help import handle_help
+from handlers.member_cache import resolve_member
+from handlers.tea import handle_tea
+from handlers.tidy import _handle_tidy
+from handlers.todos import (
+    handle_add_todo,
+    handle_cancel_todo,
+    handle_complete_todo,
+    handle_view_todos,
+)
+from vacuum_tracker import handle as vacuum_handle
 
 # 只有當用戶明確要求「看書回答」時才注入知識庫
 _KB_TRIGGER_WORDS = ["看書", "根據書", "參考書", "用書", "知識庫", "讀過的書", "家裡的書", "書上說", "書裡說", "根據我們家"]
 
 def _should_inject_kb(text: str) -> bool:
     return any(w in text for w in _KB_TRIGGER_WORDS)
-from handlers.games import handle_pairing, handle_dice, handle_rps
-from handlers.todos import handle_add_todo, handle_view_todos, handle_complete_todo, handle_cancel_todo
-from handlers.vote import handle_vote
-from vacuum_tracker import handle as vacuum_handle
-from dispatch_fun import try_dispatch
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB max payload
@@ -225,59 +214,73 @@ def handle_fun(reply_token: str, source, text: str, member: str = "") -> bool:
         return True
 
     # ── Simple dispatch (fast path for stateless commands) ──
+    from dispatch_fun import try_dispatch
     if try_dispatch(text, lambda t: reply(reply_token, t)):
         return True
 
     # ── 趣味互動（骰子、猜拳、配對）──
     if text.startswith("配對"):
+        from handlers.games import handle_pairing
         reply(reply_token, handle_pairing(text))
         return True
     if re.search(r'搖骰子|擲骰子|搖\d*[顆個]骰', text):
+        from handlers.games import handle_dice
         reply(reply_token, handle_dice(text))
         return True
     if text.startswith("猜拳"):
+        from handlers.games import handle_rps
         reply(reply_token, handle_rps(text))
         return True
 
     # ── 投票 ──
+    from handlers.vote import handle_vote
     vote_result = handle_vote(text, group_id, member)
     if vote_result is not None:
         reply(reply_token, vote_result)
         return True
 
     # ── 天氣 ──
+    from handlers.weather import _handle_weather
     if _handle_weather(reply_token, text):
         return True
 
     # ── 星座運勢 ──
+    from handlers.horoscope import _handle_horoscope
     if _handle_horoscope(reply_token, text, MEMBER_SIGNS):
         return True
 
     # ── 問答遊戲 ──
+    from handlers.quiz import _handle_quiz
     if _handle_quiz(reply_token, text, group_id):
         return True
 
     # ── 娛樂 ──
+    from handlers.entertainment import _handle_entertainment
     if _handle_entertainment(reply_token, text):
         return True
 
     # ── 圖片 ──
+    from handlers.images import _handle_images
     if _handle_images(reply_token, text):
         return True
 
     # ── 工具 ──
+    from handlers.utils import _handle_utils
     if _handle_utils(reply_token, text):
         return True
 
     # ── 金融 ──
+    from handlers.finance import _handle_finance
     if _handle_finance(reply_token, text):
         return True
 
     # ── 語言 ──
+    from handlers.language import _handle_language
     if _handle_language(reply_token, text):
         return True
 
     # ── 念出來（TTS）──
+    from handlers.tts import _handle_tts
     if _handle_tts(reply_token, text):
         return True
 
@@ -335,7 +338,11 @@ def handle_ai_mention(reply_token: str, text: str, member: str = ""):
             persona = "你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。"
 
         # 只有用戶要求「看書回答」時才注入知識庫
-        kb = _kb_context(question) if _should_inject_kb(question) else ""
+        if _should_inject_kb(question):
+            from handlers.books import find_relevant_context as _kb_context
+            kb = _kb_context(question)
+        else:
+            kb = ""
         prompt = (
             persona
             + (f"\n\n{ctx}" if ctx else "")
@@ -398,6 +405,39 @@ def health():
     all_ok = all(v == "ok" for v in checks.values())
     status = 200 if all_ok else 503
     return checks, status
+
+
+@app.route("/memory")
+def memory_status():
+    """Return current process memory usage (works on Linux/Render without psutil)."""
+    import os
+    data = {
+        "rss_mb": None,
+        "vmem_mb": None,
+        "service": os.environ.get("RENDER_SERVICE_NAME", "line-family-bot"),
+    }
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        data["rss_mb"] = round(int(parts[1]) / 1024, 2)
+                elif line.startswith("VmSize:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        data["vmem_mb"] = round(int(parts[1]) / 1024, 2)
+    except Exception:
+        pass
+    try:
+        import psutil
+        p = psutil.Process(os.getpid())
+        info = p.memory_info()
+        data["rss_mb"] = round(info.rss / 1024 / 1024, 2)
+        data["vmem_mb"] = round(info.vms / 1024 / 1024, 2)
+    except Exception:
+        pass
+    return data, 200
 
 
 
@@ -474,23 +514,38 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
                 reply(reply_token, result)
                 return True
 
-        if (
-            handle_book_command(reply_token, text, member) or
-            handle_admin(reply_token, source, text) or
-            handle_batch_log(reply_token, member, text) or
-            handle_help(reply_token, text) or
-            handle_chores(reply_token, member, text) or
-            handle_points(reply_token, member, text) or
-            handle_shopping(reply_token, member, text) or
-            handle_accounting(reply_token, member, text) or
-            handle_fine(reply_token, member, text) or
-            handle_declutter(reply_token, member, text) or
-            handle_tea(reply_token, member, text) or
-            handle_notebook_command(reply_token, text, member, reply) or
-            handle_link_command(reply_token, text, member, reply) or
-            _safe_handle_fun(reply_token, source, text, member) or
-            handle_ai_mention(reply_token, text, member)
-        ):
+        from handlers.books import handle_book_command
+        if handle_book_command(reply_token, text, member):
+            return True
+        if handle_admin(reply_token, source, text):
+            return True
+        if handle_batch_log(reply_token, member, text):
+            return True
+        if handle_help(reply_token, text):
+            return True
+        if handle_chores(reply_token, member, text):
+            return True
+        if handle_points(reply_token, member, text):
+            return True
+        if handle_shopping(reply_token, member, text):
+            return True
+        if handle_accounting(reply_token, member, text):
+            return True
+        if handle_fine(reply_token, member, text):
+            return True
+        if handle_declutter(reply_token, member, text):
+            return True
+        if handle_tea(reply_token, member, text):
+            return True
+        from handlers.notebook import handle_notebook_command
+        if handle_notebook_command(reply_token, text, member, reply):
+            return True
+        from handlers.links import handle_link_command
+        if handle_link_command(reply_token, text, member, reply):
+            return True
+        if _safe_handle_fun(reply_token, source, text, member):
+            return True
+        if handle_ai_mention(reply_token, text, member):
             return True
 
         # 拼字容錯：短指令找最接近的
@@ -571,7 +626,11 @@ def handle_message(event: MessageEvent):
                     "重要：絕對不能捏造家事點數、待辦事項等資料庫的實際數字。"
                     "若有人要你幫忙加點數，請告知正確指令（如：完成 拖地）。"
                 )
-                kb = _kb_context(question) if _should_inject_kb(question) else ""
+                if _should_inject_kb(question):
+                    from handlers.books import find_relevant_context as _kb_context
+                    kb = _kb_context(question)
+                else:
+                    kb = ""
                 full_prompt = persona + (f"\n\n{kb}\n\n---" if kb else "") + f"\n\n{member or '家人'}：{question}"
                 _xiaohua_answer = call_ai(full_prompt) or "😵 腦子轉不動了～"
             else:
@@ -598,7 +657,11 @@ def handle_message(event: MessageEvent):
         _memory.record(member or "家人", clean)  # @提及一定是對話，直接記
         if not handle_fun(reply_token, event.source, clean, member):
             ctx = _memory.format_for_ai()
-            kb = _kb_context(clean) if _should_inject_kb(clean) else ""
+            if _should_inject_kb(clean):
+                from handlers.books import find_relevant_context as _kb_context
+                kb = _kb_context(clean)
+            else:
+                kb = ""
             prompt = (
                 "你是一個溫暖實用的家庭助理，用繁體中文回答，簡潔不囉嗦。"
                 + (f"\n\n{ctx}" if ctx else "")
