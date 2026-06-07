@@ -71,6 +71,9 @@ def handle_chores(reply_token: str, member: str, text: str) -> bool:
         else:
             chore_names = []
 
+        # 同一筆輸入中，相同家事只算一次（避免「廁所1 廁所2 廁所3」被算 3 次）
+        chore_names = list(dict.fromkeys(chore_names))
+
         if not chore_names:
             reply(reply_token,
                   "請在「完成」後面加上家事名稱，例如：\n"
@@ -79,14 +82,20 @@ def handle_chores(reply_token: str, member: str, text: str) -> bool:
                   "完成\n早餐\n午餐\n洗鍋")
             return True
 
+        # 追踪同一筆輸入中各家事已累積但未寫入 Sheets 的點數
+        pending_chore_points: dict[str, float] = {}
+
         for chore_name in chore_names:
-            result = complete_chore(chore_name, who)
+            extra = pending_chore_points.get(chore_name, 0.0)
+            result = complete_chore(chore_name, who, extra_already=extra)
             if result and result.get("capped"):
                 capped_list.append(result["name"])
             elif result:
-                pts_str = f"{result['points']:.2f}".rstrip('0').rstrip('.')
-                bg(log_chore_points, who, result["name"], result["points"])
+                pts = result["points"]
+                pts_str = f"{pts:.2f}".rstrip('0').rstrip('.')
+                bg(log_chore_points, who, result["name"], pts)
                 successes.append((result["name"], pts_str))
+                pending_chore_points[result["name"]] = extra + pts
             else:
                 not_found.append(chore_name)
 

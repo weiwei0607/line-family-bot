@@ -340,6 +340,7 @@ def get_chores(only_pending=False) -> list[dict]:
 # 每週點數上限設定（家事名稱 → 每週最多幾點）
 WEEKLY_CAPS: dict[str, float] = {
     "掃地": 2.0,
+    "廁所": 3.0,  # 1點/次，每週最多3次
 }
 
 # 家事別名對照（輸入 → 正式名稱）
@@ -405,15 +406,17 @@ def find_chore(chore_name: str) -> dict | None:
     )
     return matched
 
-def complete_chore(chore_name: str, member: str) -> dict | None:
-    """家事可重複做，查名稱、檢查上限、回傳結果（不寫入 Sheets）"""
+def complete_chore(chore_name: str, member: str, extra_already: float = 0.0) -> dict | None:
+    """家事可重複做，查名稱、檢查上限、回傳結果（不寫入 Sheets）
+    extra_already: 同一筆輸入中已累積但還沒寫入 Sheets 的點數
+    """
     matched = find_chore(chore_name)
     if not matched:
         return None
 
     cap = WEEKLY_CAPS.get(matched["name"])
     if cap is not None:
-        already = get_member_weekly_chore_points(member, matched["name"])
+        already = get_member_weekly_chore_points(member, matched["name"]) + extra_already
         if already >= cap:
             matched["capped"] = True
             matched["cap"] = cap

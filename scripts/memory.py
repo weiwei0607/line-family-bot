@@ -4,9 +4,12 @@
 - 對話訊息非同步寫入 Google Sheets「對話紀錄」tab（含 group_id 欄位）
 - 機器人啟動時從 Sheets 還原各群組歷史
 - 短暫記憶（機器人回覆）只存記憶體，TTL 2 小時後自動過濾
+
+環境變數 ENABLE_MEMORY=false 可完全關閉（省記憶體 + 不寫 Sheets）
 """
 
 import logging
+import os
 import threading
 from collections import deque, OrderedDict
 from datetime import datetime
@@ -14,14 +17,16 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
+ENABLE_MEMORY = os.environ.get("ENABLE_MEMORY", "true").lower() not in ("0", "false", "no", "off")
+
 TZ = ZoneInfo("Asia/Taipei")
 _TAB = "對話紀錄"
-_BUFFER_SIZE = 30
-_CONTEXT_SIZE = 20
-_MAX_MSG_LEN = 300
+_BUFFER_SIZE = 20        # 每群組記憶體緩衝區從 30 降為 20
+_CONTEXT_SIZE = 15        # AI 上下文從 20 降為 15
+_MAX_MSG_LEN = 200        # 單條訊息從 300 字降為 200 字
 _EPHEMERAL_TTL_HOURS = 2
-_SHEETS_MAX_ROWS = 500
-_MAX_GROUPS = 20           # 限制同時存在的群組緩衝區數量
+_SHEETS_MAX_ROWS = 300    # Sheets 上限從 500 降為 300
+_MAX_GROUPS = 10          # 同時緩衝群組從 20 降為 10
 _TAB_ENSURED = False       # 只在第一次寫入時確認 tab 存在
 
 # 每個 group_id 一個獨立 deque，用 OrderedDict 實現 LRU 淘汰
@@ -132,7 +137,7 @@ def load_from_sheets(n: int = _BUFFER_SIZE):
         from sheets import _read, _ensure_tab, bg
         _ensure_tab(_TAB)
         # 只讀最近 200 行填入記憶體（低記憶體開銷）
-        rows = _read(_TAB, "A2:D200")
+        rows = _read(_TAB, "A2:D100")
         with _lock:
             for r in rows[-n:]:
                 if len(r) < 3:
