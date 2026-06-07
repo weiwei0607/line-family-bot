@@ -11,6 +11,12 @@ import json
 import logging
 from datetime import datetime, timezone, timedelta
 from sheets import _read, _append, _get_service, _get_sheet_id
+from line_push import push_messages as _push_messages
+
+def push_text_to_group(text: str):
+    group_id = os.environ.get("LINE_GROUP_ID", "")
+    if group_id:
+        _push_messages(group_id, [{"type": "text", "text": text}])
 
 logger = logging.getLogger(__name__)
 TW_TZ = timezone(timedelta(hours=8))
@@ -214,26 +220,27 @@ def main():
             meaningful.append(r)
 
     # 3. 如果噪音很多，重寫 Sheets（保留有意義的）
-    if noise_count > 10:
+    # 安全防護：meaningful 為空時不清除，避免誤刪所有記錄
+    if noise_count > 10 and meaningful:
         try:
             svc = _get_service()
             sid = _get_sheet_id()
             total = len(rows)
-            # 清除舊資料
+            # 清除舊資料（多清 10 行避免殘留）
             svc.spreadsheets().values().clear(
-                spreadsheetId=sid, range=f"{_TAB}!A2:D{total + 1}"
+                spreadsheetId=sid, range=f"{_TAB}!A2:D{total + 10}"
             ).execute()
-            # 寫回有意義的
-            if meaningful:
-                svc.spreadsheets().values().update(
-                    spreadsheetId=sid,
-                    range=f"{_TAB}!A2",
-                    valueInputOption="USER_ENTERED",
-                    body={"values": meaningful},
-                ).execute()
+            svc.spreadsheets().values().update(
+                spreadsheetId=sid,
+                range=f"{_TAB}!A2",
+                valueInputOption="USER_ENTERED",
+                body={"values": meaningful},
+            ).execute()
             logger.info("Cleaned %d noise rows, kept %d meaningful", noise_count, len(meaningful))
         except Exception as exc:
             logger.warning("Sheets cleanup failed: %s", exc)
+    elif noise_count > 10 and not meaningful:
+        logger.warning("Skipping cleanup: noise_count=%d but meaningful=0, would wipe all memory", noise_count)
 
     # 4. 生成本週對話摘要
     summary = _get_gemini_summary(meaningful)
