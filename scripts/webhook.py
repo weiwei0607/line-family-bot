@@ -77,12 +77,59 @@ import memory as _memory
 from sheets import bg as _bg
 _bg(_memory.load_from_sheets)  # 啟動時從 Sheets 還原對話歷史
 
-# 包裝 reply，讓機器人回覆自動記入短暫記憶（跳過錯誤訊息）
+# ── 家庭狀態簽名（附在每則回覆末尾）────────────────────────────────────────
+_footer_cache: dict = {"v": None, "ts": 0.0}
+_FOOTER_TTL = 180  # 3 分鐘
+
+def _get_family_footer() -> str:
+    now = time.time()
+    if _footer_cache["v"] is not None and now - _footer_cache["ts"] < _FOOTER_TTL:
+        return _footer_cache["v"]
+    try:
+        from sheets import get_members, get_chores, get_weekly_points, get_tea_checkins
+        from datetime import datetime as _dt2
+        from zoneinfo import ZoneInfo as _ZI
+        today = _dt2.now(_ZI("Asia/Taipei")).strftime("%Y-%m-%d")
+
+        members = get_members()
+        pts = get_weekly_points()
+        chores = get_chores()
+        tea_done = get_tea_checkins(today)
+
+        lines = []
+        low_pts = [(m, round(pts.get(m, 0), 1)) for m in members if pts.get(m, 0) < POINTS_THRESHOLD]
+        if low_pts:
+            detail = "、".join(f"{m}（{p}點）" for m, p in low_pts)
+            lines.append(f"⚠️ 點數不夠：{detail}")
+
+        no_tea = [m for m in members if m not in tea_done]
+        if no_tea:
+            lines.append(f"🍵 未喝茶：{'、'.join(no_tea)}")
+
+        if chores:
+            lines.append(f"📋 待完成家事：{len(chores)} 項")
+
+        footer = ("\n─────────────\n" + "\n".join(lines)) if lines else ""
+        _footer_cache["v"] = footer
+        _footer_cache["ts"] = now
+        return footer
+    except Exception:
+        return ""
+
+
+def _invalidate_footer():
+    _footer_cache["ts"] = 0.0
+
+
+# 包裝 reply，讓機器人回覆自動記入短暫記憶（跳過錯誤訊息），並附家庭狀態簽名
 _ERROR_PREFIXES = ("❌", "⚠️", "⏳", "🚫")
 _raw_reply = reply
 def reply(token: str, text: str, **kw):
     if text and not text.startswith(_ERROR_PREFIXES):
         _memory.record_ephemeral("機器人", text)
+        footer = _get_family_footer()
+        if footer:
+            text = text + footer
     return _raw_reply(token, text, **kw)
 
 
@@ -604,20 +651,7 @@ def _run_check_reminders(group_id: str):
             except Exception as _e:
                 logger.warning("check_reminders: error processing pre-day todo row %s: %s", t.get("row"), _e)
 
-    # ── 晚上 20:00 提醒沒喝茶的人（每天只推一次）──
-    if now.hour >= 20:
-        from tts_store import kv_get as _kv_get2, kv_set as _kv_set2
-        from sheets import get_members as _get_members, get_tea_checkins as _get_tea_checkins
-        tea_key = f"tea_reminder:{today}"
-        if not _kv_get2(tea_key):
-            all_members = _get_members()
-            done = _get_tea_checkins(today)
-            pending = [m for m in all_members if m not in done]
-            if pending:
-                names = "、".join(pending)
-                push_messages(group_id, [{"type": "text", "text": f"🍵 提醒喝茶！\n還沒喝的：{names}\n傳「喝茶」打卡，茶快過期了！"}])
-                sent += 1
-            _kv_set2(tea_key, "1", ttl_seconds=86400)
+    # 喝茶提醒已移至 reply 簽名，不再單獨 push（節省 LINE 月額）
 
     logger.info("check_reminders: sent %d reminders", sent)
 
