@@ -216,16 +216,20 @@ def cron_try_mark_done(task_name: str, date_str: str | None = None) -> bool:
         date_str = datetime.now().strftime("%Y-%m-%d")
     try:
         with _write_lock, _transaction() as cur:
-            cur.execute(
-                f"SELECT 1 FROM cron_log WHERE task_name = {PH} AND run_date = {PH}",
-                (task_name, date_str),
-            )
-            if cur.fetchone() is not None:
-                return False
-            cur.execute(
-                f"INSERT INTO cron_log (task_name, run_date) VALUES ({PH}, {PH})",
-                (task_name, date_str),
-            )
+            if USE_PG:
+                cur.execute(
+                    "INSERT INTO cron_log (task_name, run_date) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    (task_name, date_str),
+                )
+                if cur.rowcount == 0:
+                    return False
+            else:
+                cur.execute(
+                    "INSERT OR IGNORE INTO cron_log (task_name, run_date) VALUES (?, ?)",
+                    (task_name, date_str),
+                )
+                if cur.rowcount == 0:
+                    return False
             _maybe_cleanup(cur)
             return True
     except Exception as exc:

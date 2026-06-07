@@ -49,30 +49,34 @@ def _week_start():
     return (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
 
 _SHEETS_SERVICE = None
+_SERVICE_LOCK = threading.Lock()
 
 def _get_service():
     global _SHEETS_SERVICE
     if _SHEETS_SERVICE is not None:
         return _SHEETS_SERVICE
-    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
-    if creds_json:
-        info = json.loads(creds_json)
-    else:
-        info = {
-            "client_id": os.environ.get("GOOGLE_CLIENT_ID", ""),
-            "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", ""),
-            "refresh_token": os.environ.get("GOOGLE_REFRESH_TOKEN", ""),
-            "token_uri": "https://oauth2.googleapis.com/token",
-        }
-    creds = Credentials(
-        token=None,
-        refresh_token=info["refresh_token"],
-        token_uri=info["token_uri"],
-        client_id=info["client_id"],
-        client_secret=info["client_secret"],
-    )
-    _SHEETS_SERVICE = build("sheets", "v4", credentials=creds, cache_discovery=False)
-    return _SHEETS_SERVICE
+    with _SERVICE_LOCK:
+        if _SHEETS_SERVICE is not None:  # double-check after acquiring lock
+            return _SHEETS_SERVICE
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+        if creds_json:
+            info = json.loads(creds_json)
+        else:
+            info = {
+                "client_id": os.environ.get("GOOGLE_CLIENT_ID", ""),
+                "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", ""),
+                "refresh_token": os.environ.get("GOOGLE_REFRESH_TOKEN", ""),
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        creds = Credentials(
+            token=None,
+            refresh_token=info["refresh_token"],
+            token_uri=info["token_uri"],
+            client_id=info["client_id"],
+            client_secret=info["client_secret"],
+        )
+        _SHEETS_SERVICE = build("sheets", "v4", credentials=creds, cache_discovery=False)
+        return _SHEETS_SERVICE
 
 def _get_sheet_id():
     return os.environ["FAMILY_SHEET_ID"]
@@ -148,14 +152,21 @@ def _append(tab, row):
             valueInputOption="USER_ENTERED",
             body={"values": [row]},
         ).execute()
-    # 自動創建不存在的 tab
     _ensure_tab(tab)
     try:
         _retry_gapi(_call)
     except HttpError as e:
         if e.resp.status in (400, 404):
-            raise RuntimeError(f"Google Sheets 工作表「{tab}」不存在，請先建立該工作表") from e
-        raise
+            # Tab might not have been created yet — retry once
+            logger.warning("_append 400 for tab %r, retrying after ensure_tab", tab)
+            global _SHEETS_SERVICE
+            _SHEETS_SERVICE = None  # force service rebuild in case of stale state
+            if _ensure_tab(tab):
+                _retry_gapi(_call)
+            else:
+                raise RuntimeError(f"Google Sheets 工作表「{tab}」建立失敗") from e
+        else:
+            raise
 
 def _update_cell(tab, cell, value):
     def _call():
