@@ -100,6 +100,32 @@ def _ensure_tab(tab_name: str) -> bool:
         return False
 
 
+def _ensure_tab_with_header(tab_name: str, headers: list[str]) -> bool:
+    """Ensure tab exists and has a header row. If empty, add header."""
+    if not _ensure_tab(tab_name):
+        return False
+    try:
+        svc = _get_service()
+        sid = _get_sheet_id()
+        # Check if first row is empty
+        result = svc.spreadsheets().values().get(
+            spreadsheetId=sid, range=f"{tab_name}!A1"
+        ).execute()
+        if result.get("values"):
+            return True  # Already has content, don't overwrite
+        # Add header
+        svc.spreadsheets().values().append(
+            spreadsheetId=sid,
+            range=f"{tab_name}!A1",
+            valueInputOption="USER_ENTERED",
+            body={"values": [headers]},
+        ).execute()
+        return True
+    except Exception as e:
+        logger.warning("ensure_tab_with_header %s failed: %s", tab_name, e)
+        return False
+
+
 def _retry_gapi(fn, max_retries=3, backoff=2):
     global _SHEETS_SERVICE
     import time
@@ -1148,7 +1174,9 @@ def delete_todo_by_content(member: str, content: str) -> dict | None:
 def add_tea_checkin(member: str) -> bool:
     """記錄今天喝茶打卡。若今天已打卡回傳 False。"""
     today = _today_str()
-    rows = _read("喝茶紀錄", "A2:C500")
+    # 確保 tab 有表頭，避免資料寫到 A1 導致讀取遺漏
+    _ensure_tab_with_header("喝茶紀錄", ["日期", "成員", "時間"])
+    rows = _read("喝茶紀錄", "A1:C500")
     for r in rows:
         if len(r) >= 2 and r[0] == today and r[1] == member:
             return False
@@ -1159,5 +1187,5 @@ def add_tea_checkin(member: str) -> bool:
 def get_tea_checkins(date_str: str | None = None) -> list[str]:
     """回傳指定日期已打卡的成員列表。"""
     target = date_str or _today_str()
-    rows = _read("喝茶紀錄", "A2:C500")
+    rows = _read("喝茶紀錄", "A1:C500")
     return [r[1] for r in rows if len(r) >= 2 and r[0] == target]
