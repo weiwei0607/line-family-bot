@@ -15,3 +15,4 @@ from .tts import _handle_tts
 from .utils import _handle_utils
 from .weather import _handle_weather
 from .books import handle_book_command
+from .tea import handle_tea

@@ -1141,3 +1141,23 @@ def delete_todo_by_content(member: str, content: str) -> dict | None:
     if delete_todo_by_row(matched[0]["row"]):
         return matched[0]
     return None
+
+
+# ── 喝茶打卡 Tab: [日期, 成員, 打卡時間] ──────────────────────────────────
+
+def add_tea_checkin(member: str) -> bool:
+    """記錄今天喝茶打卡。若今天已打卡回傳 False。"""
+    today = _today_str()
+    rows = _read("喝茶紀錄", "A2:C500")
+    for r in rows:
+        if len(r) >= 2 and r[0] == today and r[1] == member:
+            return False
+    _append("喝茶紀錄", [today, member, _now_str()])
+    return True
+
+
+def get_tea_checkins(date_str: str | None = None) -> list[str]:
+    """回傳指定日期已打卡的成員列表。"""
+    target = date_str or _today_str()
+    rows = _read("喝茶紀錄", "A2:C500")
+    return [r[1] for r in rows if len(r) >= 2 and r[0] == target]

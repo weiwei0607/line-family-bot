@@ -52,6 +52,7 @@ from handlers import (
     handle_points,
     handle_shopping,
     handle_accounting,
+    handle_tea,
     resolve_member,
 )
 from handlers.notebook import handle_notebook_command
@@ -603,6 +604,21 @@ def _run_check_reminders(group_id: str):
             except Exception as _e:
                 logger.warning("check_reminders: error processing pre-day todo row %s: %s", t.get("row"), _e)
 
+    # ── 晚上 20:00 提醒沒喝茶的人（每天只推一次）──
+    if now.hour >= 20:
+        from tts_store import kv_get as _kv_get2, kv_set as _kv_set2
+        from sheets import get_members as _get_members, get_tea_checkins as _get_tea_checkins
+        tea_key = f"tea_reminder:{today}"
+        if not _kv_get2(tea_key):
+            all_members = _get_members()
+            done = _get_tea_checkins(today)
+            pending = [m for m in all_members if m not in done]
+            if pending:
+                names = "、".join(pending)
+                push_messages(group_id, [{"type": "text", "text": f"🍵 提醒喝茶！\n還沒喝的：{names}\n傳「喝茶」打卡，茶快過期了！"}])
+                sent += 1
+            _kv_set2(tea_key, "1", ttl_seconds=86400)
+
     logger.info("check_reminders: sent %d reminders", sent)
 
 
@@ -706,6 +722,7 @@ def _process_text_message(reply_token: str, text: str, source, member: str = "")
             handle_accounting(reply_token, member, text) or
             handle_fine(reply_token, member, text) or
             handle_declutter(reply_token, member, text) or
+            handle_tea(reply_token, member, text) or
             handle_notebook_command(reply_token, text, member, reply) or
             handle_link_command(reply_token, text, member, reply) or
             _safe_handle_fun(reply_token, source, text, member) or
