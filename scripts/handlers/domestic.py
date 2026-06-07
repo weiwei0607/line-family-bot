@@ -31,14 +31,23 @@ def handle_chores(reply_token: str, member: str, text: str) -> bool:
             chores_sheet = get_chores()
             known_names = {c["name"] for c in chores_sheet}
             for line in lines:
-                cleaned = re.sub(r'\s+\d+(?:\.\d+)?$', '', line).strip()
+                # 去掉行尾數字標記（支援「早餐 1」「廁所1」）
+                cleaned = re.sub(r'(\s+)?\d+(?:\.\d+)?$', '', line).strip()
                 if not cleaned or re.match(r'^\d+(?:\.\d+)?$', cleaned):
                     continue
-                # 先嘗試整行匹配
+                # 先嘗試整行精確匹配（避免「廁所1」被模糊配到「廁所」）
                 matched = next(
-                    (c for c in chores_sheet if cleaned in c["name"] or c["name"] in cleaned),
+                    (c for c in chores_sheet if cleaned == c["name"]),
                     None,
                 )
+                # 再嘗試包含關係，但 cleaned 必須 >= 2 字且不是單字亂配
+                if not matched and len(cleaned) >= 2:
+                    matched = next(
+                        (c for c in chores_sheet
+                         if (cleaned in c["name"] or c["name"] in cleaned)
+                         and abs(len(cleaned) - len(c["name"])) <= 2),
+                        None,
+                    )
                 if matched:
                     chore_names.append(matched["name"])
                 else:
@@ -46,8 +55,12 @@ def handle_chores(reply_token: str, member: str, text: str) -> bool:
                     words = cleaned.split()
                     found_any = False
                     for w in words:
+                        if len(w) < 2:
+                            continue
                         m = next(
-                            (c for c in chores_sheet if w in c["name"] or c["name"] in w),
+                            (c for c in chores_sheet
+                             if w == c["name"]
+                             or (w in c["name"] and abs(len(w) - len(c["name"])) <= 2)),
                             None,
                         )
                         if m:
