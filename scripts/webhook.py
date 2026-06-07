@@ -389,31 +389,11 @@ def health():
     return checks, status
 
 
-@app.route("/daily_push", methods=["POST"])
-def daily_push():
-    """早安推播（含 TTS），由 GitHub Actions 每天呼叫"""
-    cron_secret = os.environ.get("CRON_SECRET", "")
-    token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
-    if not cron_secret or not token or token != cron_secret:
-        abort(403)
-
+def _run_daily_push(group_id: str, today_str: str):
+    """Background worker for daily_push — runs in thread pool."""
     from sheets import get_members, get_chores, get_weekly_points
     from api_helpers import format_weather_block
-    from tts_store import cron_try_mark_done
-    from datetime import datetime as _dt
     from utils import send_telegram_alert
-
-    group_id = os.environ.get("LINE_GROUP_ID", "")
-    if not group_id:
-        logger.error("daily_push: LINE_GROUP_ID not set")
-        return "LINE_GROUP_ID not set", 500
-
-    today_str = _dt.now().strftime("%Y-%m-%d")
-
-    # 防重複：先檢查今天是否已經發過
-    if not cron_try_mark_done("daily_push", today_str):
-        logger.info("daily_push already sent today (%s), skipping.", today_str)
-        return "Already sent today", 200
 
     logger.info("daily_push started for %s", today_str)
 
@@ -492,43 +472,55 @@ def daily_push():
 
     text_body = "\n".join(lines)
 
-    # ── 推送文字（核心，失敗就整個回傳 500）──
+    # ── 推送文字（核心）──
     try:
         push_messages(group_id, [{"type": "text", "text": text_body[:4900]}])
         logger.info("daily_push: text message sent")
     except Exception as exc:
         logger.exception("daily_push text push failed")
         send_telegram_alert(f"daily_push text push failed: {type(exc).__name__}: {exc}")
-        return f"Text push failed: {exc}", 500
 
     if errors:
         send_telegram_alert(f"daily_push completed with partial errors: {'; '.join(errors)}")
 
     logger.info("daily_push completed successfully for %s", today_str)
-    return "OK"
 
 
-@app.route("/check_reminders", methods=["POST"])
-def check_reminders():
-    """連環扣提醒：由 GitHub Actions 每 10 分鐘呼叫一次。"""
+@app.route("/daily_push", methods=["POST"])
+def daily_push():
+    """早安推播，由 GitHub Actions 每天呼叫。返回 200 立即，實際工作在後台執行。"""
     cron_secret = os.environ.get("CRON_SECRET", "")
     token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
     if not cron_secret or not token or token != cron_secret:
         abort(403)
 
-    from sheets import get_todos, update_todo_reminder
-    from datetime import datetime as _dt, timedelta as _td
-    from sheets import TW_TZ
+    from tts_store import cron_try_mark_done
+    from datetime import datetime as _dt
 
     group_id = os.environ.get("LINE_GROUP_ID", "")
     if not group_id:
         return "LINE_GROUP_ID not set", 500
 
+    today_str = _dt.now().strftime("%Y-%m-%d")
+    if not cron_try_mark_done("daily_push", today_str):
+        logger.info("daily_push already sent today (%s), skipping.", today_str)
+        return "Already sent today", 200
+
+    # Return immediately so the Gunicorn worker is free for LINE webhooks
+    _webhook_pool.submit(_run_daily_push, group_id, today_str)
+    return "OK"
+
+
+def _run_check_reminders(group_id: str):
+    """Background worker for check_reminders — runs in thread pool."""
+    from sheets import get_todos, update_todo_reminder
+    from datetime import datetime as _dt, timedelta as _td
+    from sheets import TW_TZ
+
     now = _dt.now(TW_TZ)
     today = now.strftime("%Y-%m-%d")
     todos = get_todos(only_pending=True)
 
-    base_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     sent = 0
 
     def _push_with_tts(msg, voice_text):
@@ -611,7 +603,24 @@ def check_reminders():
             except Exception as _e:
                 logger.warning("check_reminders: error processing pre-day todo row %s: %s", t.get("row"), _e)
 
-    return f"sent {sent} reminders", 200
+    logger.info("check_reminders: sent %d reminders", sent)
+
+
+@app.route("/check_reminders", methods=["POST"])
+def check_reminders():
+    """連環扣提醒：由 GitHub Actions 每 10 分鐘呼叫一次。返回 200 立即，實際工作在後台執行。"""
+    cron_secret = os.environ.get("CRON_SECRET", "")
+    token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    if not cron_secret or not token or token != cron_secret:
+        abort(403)
+
+    group_id = os.environ.get("LINE_GROUP_ID", "")
+    if not group_id:
+        return "LINE_GROUP_ID not set", 500
+
+    # Return immediately so the Gunicorn worker is free for LINE webhooks
+    _webhook_pool.submit(_run_check_reminders, group_id)
+    return "ok"
 
 
 def _verify_signature(body: str, signature: str) -> bool:
