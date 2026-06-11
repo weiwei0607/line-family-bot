@@ -23,7 +23,8 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
 
     # 最後一行只有匹配到已登記成員才視為名字
     members_list = get_members()
-    who = member or ""
+    sender = member or ""
+    who = sender or ""
     last = chore_lines[-1] if chore_lines else ""
     if last and not re.search(r'\d', last):
         matched = next((m for m in members_list if m in last or last in m), None)
@@ -31,14 +32,18 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
             who = matched
             chore_lines = chore_lines[:-1]
 
-    who = who or member or "家人"
+    who = who or sender or "家人"
 
     # 解析家事行，智能分流：家事 / 收拾
     chore_pattern = re.compile(r'^(.+?)(\d+\.?\d*)$')
     chores_sheet = None
     chores: list[tuple[str, float]] = []
     tidy_items: list[tuple[str, str]] = []  # (area, content)
+    tidy_rejected: list[str] = []  # 因「不能自己記」被拒絕的收拾項目
     errors: list[str] = []
+
+    # 檢查是否為自己記錄收拾（收拾不能自己紀錄，需由他人代為）
+    self_tidy_blocked = bool(sender and sender == who and sender in members_list)
 
     for line in chore_lines:
         if not line:
@@ -73,7 +78,10 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
                 continue
             area = _detect_area(content)
             if area != "未分類":
-                tidy_items.append((area, content))
+                if self_tidy_blocked:
+                    tidy_rejected.append(f"• {content}（{area}）")
+                else:
+                    tidy_items.append((area, content))
             else:
                 errors.append(f"• {line}（請標註「自己」或「公共」，例如：自己 {line}）")
             continue
@@ -81,12 +89,15 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
         # 3) 也不是 tidy，檢查 _detect_area 是否能識別區域 → 走 tidy
         area = _detect_area(line)
         if area != "未分類":
-            tidy_items.append((area, line))
+            if self_tidy_blocked:
+                tidy_rejected.append(f"• {line}（{area}）")
+            else:
+                tidy_items.append((area, line))
         else:
             # 家事也找不到、區域也分不出 → 請使用者講清楚
             errors.append(f"• {line}（請標註「自己」或「公共」，例如：自己 {line}）")
 
-    # 記錄收拾
+    # 記錄收拾（只記非自己幫自己記的）
     for area, content in tidy_items:
         add_tidy_log(who, area, content)
 
@@ -132,6 +143,10 @@ def handle_batch_log(reply_token: str, member: str, text: str) -> bool:
         if capped_names:
             parts[-1] += f"\n⚠️ 已達上限略過：{'、'.join(capped_names)}"
         parts.append(summary)
+
+    # 自己不能幫自己記收拾的提示
+    if self_tidy_blocked and tidy_rejected:
+        parts.append("🚫 以下收拾無法自己紀錄，請由其他家人代為記錄\n" + "\n".join(tidy_rejected))
 
     # 無法分類的項目
     if errors:
